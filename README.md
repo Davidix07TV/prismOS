@@ -1,7 +1,4 @@
-# prismOS
-Linux-based operating system inspired by macOS, with EDU, Work, Games and Soft editions.
-
-# prismOS
+# prismOS 💎✨
 
 prismOS is a Linux-based operating system project inspired by a clean, elegant desktop experience, with multiple editions for different needs.
 
