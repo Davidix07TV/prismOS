@@ -1,6 +1,6 @@
 # prismOS 💎✨
 
-prismOS is a Linux-based operating system project inspired by a clean, elegant desktop experience, with multiple editions for different needs.
+prismOS is a Linux-based operating system project inspired by a clean, elegant desktop experience, with multiple editions for different needs. From Italians!
 
 ## Authors
 - Davidix
