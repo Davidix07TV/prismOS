@@ -1,0 +1,20 @@
+{
+  "allow_apps": [
+    "firefox-esr",
+    "libreoffice",
+    "geogebra"
+  ],
+  "deny_web": [
+    "youtube.com",
+    "twitch.tv"
+  ],
+  "disable_settings": [
+    "network",
+    "vpn",
+    "usb-mount"
+  ],
+  "session": {
+    "allow_guest": false,
+    "max_idle_minutes": 25
+  }
+}

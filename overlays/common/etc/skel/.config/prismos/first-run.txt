@@ -1,0 +1,2 @@
+Benvenuto in prismOS.
+Questa ISO e' stata generata dalla pipeline profili.
