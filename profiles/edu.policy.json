@@ -2,11 +2,13 @@
   "allow_apps": [
     "firefox-esr",
     "libreoffice",
-    "geogebra"
+    "geogebra",
+    "kolibri"
   ],
   "deny_web": [
     "youtube.com",
-    "twitch.tv"
+    "twitch.tv",
+    "reddit.com"
   ],
   "disable_settings": [
     "network",
@@ -15,6 +17,6 @@
   ],
   "session": {
     "allow_guest": false,
-    "max_idle_minutes": 25
+    "max_idle_minutes": 20
   }
 }

@@ -59,8 +59,12 @@ setup_tree() {
 copy_overlays() {
   local profile="$1"
   local rootfs="$2"
-  [[ -d "$OVERLAYS_DIR/common" ]] && cp -a "$OVERLAYS_DIR/common/." "$rootfs/"
-  [[ -d "$OVERLAYS_DIR/$profile" ]] && cp -a "$OVERLAYS_DIR/$profile/." "$rootfs/"
+  if [[ -d "$OVERLAYS_DIR/common" ]]; then
+    cp -a "$OVERLAYS_DIR/common/." "$rootfs/"
+  fi
+  if [[ -d "$OVERLAYS_DIR/$profile" ]]; then
+    cp -a "$OVERLAYS_DIR/$profile/." "$rootfs/"
+  fi
 }
 
 render_metadata() {

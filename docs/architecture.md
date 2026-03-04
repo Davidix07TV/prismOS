@@ -7,38 +7,42 @@ La configurazione è divisa in due livelli:
 1. `profiles/common.conf`: variabili globali distro/release.
 2. `profiles/<edition>.conf`: differenze per singola edizione (`work`, `games`, `edu`, `slim`).
 
-Questo modello consente di gestire facilmente nuove edizioni senza duplicazioni massive.
+## 2) OS creation layer (rootfs reale)
 
-## 2) Build layer
+`scripts/create_os.sh` crea il sistema operativo vero e proprio per ogni profilo:
 
-Lo script `scripts/build_iso.sh` implementa una pipeline in fasi:
+1. bootstrap Debian (`mmdebstrap` o fallback `debootstrap`);
+2. installazione pacchetti da `BASE_PACKAGES + PACKAGES` del profilo;
+3. applicazione metadata prismOS e overlay;
+4. inclusione policy EDU per il profilo scuola;
+5. packaging rootfs (`filesystem.squashfs` o fallback `filesystem.tar.gz`) + `SHA256SUMS`.
 
-1. load profilo + validazione variabili richieste;
-2. creazione albero `iso-root`;
-3. merge overlay (`overlays/common` + `overlays/<profile>`);
-4. rendering metadati (`.meta/profile.env`, package/service manifests);
-5. rendering template `templates/grub.cfg`;
-6. generazione artefatto (`.iso` con `xorriso` o fallback `.tar.gz`);
-7. generazione checksum + `manifest.json` release.
+Output:
 
-## 3) EDU policy layer
+- `build/rootfs/<profile>/` root filesystem completo
+- `build/artifacts/<profile>/` artifact per pipeline live/installer
 
-Per il profilo `edu` la policy scolastica è un JSON separato (`profiles/edu.policy.json`) e viene copiata in:
+## 3) Release/ISO layer
 
-- `etc/prismos/edu.policy.json`
+`scripts/build_iso.sh` compone artefatti release:
 
-La policy supporta:
+1. merge overlay comuni e profilo;
+2. rendering metadati `.meta/profile.env`;
+3. template boot (`templates/grub.cfg`);
+4. build `.iso` (`xorriso`) o fallback `.iso.tar.gz`;
+5. checksum per artifact + `manifest.json`.
 
-- allowlist applicazioni (`allow_apps`)
-- denylist domini (`deny_web`)
-- sezioni settings bloccate (`disable_settings`)
-- parametri sessione (`session.allow_guest`, `session.max_idle_minutes`)
+## 4) EDU policy layer
 
-## 4) Validazione
+`profiles/edu.policy.json` viene gestita da `scripts/set_edu_policy.sh` e supporta:
 
-`scripts/validate_profiles.sh` verifica:
+- `allow_apps`
+- `deny_web`
+- `disable_settings`
+- `session.allow_guest`
+- `session.max_idle_minutes`
 
-- variabili obbligatorie per ogni profilo
-- validità JSON della policy EDU
+## 5) Quality/PR layer
 
-È consigliato eseguirlo in CI prima della build artefatti.
+- `scripts/validate_profiles.sh`: validazione profili e policy JSON.
+- `scripts/resolve_pr_conflicts.sh`: check marker git (`<<<<<<<`, `=======`, `>>>>>>>`) per prevenire merge rotti in PR.
