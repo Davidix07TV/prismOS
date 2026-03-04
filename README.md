@@ -1,4 +1,4 @@
-# prismOS
+# prismOS 💎✨
 
 prismOS è una base Linux modulare ispirata al workflow di macOS, con un sistema di build che genera **4 ISO dedicate**:
 
