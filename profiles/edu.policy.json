@@ -1,0 +1,5 @@
+{
+  "allow_apps": ["firefox","libreoffice","geogebra"],
+  "deny_web": ["youtube.com","twitch.tv"],
+  "disable_settings": ["network","vpn","usb-mount"]
+}
