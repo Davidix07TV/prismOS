@@ -122,3 +122,79 @@ cd /opt/actions-runner && sudo ./svc.sh stop && ./config.sh --unattended ... # r
   Settings → Actions → General if the repository is public.
 * The runner receives passwordless sudo **only for the registered user**; it
   is intended for a dedicated build machine, not for a daily-driver laptop.
+
+## 8. Windows build host (WSL2, VM or dual-boot)
+
+The runner and `cros_sdk` are Linux-only. A Windows PC can still be the build
+host through one of three routes, in order of reliability:
+
+### 8.1 Ubuntu VM (recommended, most predictable)
+
+VirtualBox/VMware Workstation Player are both fine:
+
+| Setting | Value |
+|---|---|
+| Guest | Ubuntu Server 24.04 LTS (no desktop needed) |
+| RAM | ≥ 8 GiB allocated (host must have ≥ 16 GiB) |
+| Disk | VDI/VMDK **≥ 160 GiB** (dynamic is fine, keep 150+ GiB free on the host drive) |
+| CPU | all cores you can spare, VT-x/AMD-V enabled on the guest |
+| Network | NAT is enough (the runner only dials out) |
+
+Nested virtualization is **not** required: builds work without `/dev/kvm`
+(only the optional qemu tests inside `cros_sdk` become slow or get skipped).
+Inside the VM, follow sections 3–4 verbatim: `setup_runner_host.sh` detects
+RAM/disk exactly as on bare metal.
+
+### 8.2 WSL2 (Windows 11, or Windows 10 21H2+)
+
+Viable and the fastest to set up, but not an officially supported `cros_sdk`
+host — if `cros_sdk` complains about containers, switch to the VM route.
+
+1. Install: `wsl --install -d Ubuntu-24.04`, then enable systemd inside WSL
+   (`/etc/wsl.conf`):
+
+   ```ini
+   [boot]
+   systemd=true
+   ```
+
+   and restart with `wsl --shutdown`.
+
+2. Give WSL the resources: `%USERPROFILE%\.wslconfig`
+
+   ```ini
+   [wsl2]
+   memory=10GB
+   processors=6
+   swap=8GB
+   ```
+
+3. Make sure the drive holding the WSL VHDX (`%LOCALAPPDATA%` by default) has
+   ≥ 150 GiB free; recent WSL grows the VHDX automatically (`wsl --manage
+   Ubuntu-24.04 --set-sparse true` helps on smaller drives).
+
+4. **Keep the ChromiumOS checkout inside the WSL filesystem** (`~/chromiumos`
+   via `--chromiumos-dir /opt/chromiumos` as usual): never on `/mnt/c`, whose
+   9p performance and permission model break `repo sync` and Portage.
+
+5. Run `setup_runner_host.sh` inside WSL. With systemd enabled the service
+   installs normally; on Windows 10 without systemd, start the runner in the
+   foreground instead: `cd /opt/actions-runner && ./run.sh` (keep a terminal
+   open, or use `tmux`).
+
+### 8.3 Dual-boot Ubuntu
+
+Best raw performance (direct disk I/O, real KVM if the CPU has VT-x): install
+Ubuntu 24.04 alongside Windows with a ≥ 160 GiB partition and follow
+sections 3–4.
+
+### 8.4 Writing the finished image from Windows
+
+When the workflow publishes the artifact, download `prismOS_<edition>_legacy.img`
+on Windows and flash it with **balenaEtcher** ("Flash from file") or **Rufus in
+DD-image mode**. Never use Rufus "ISO mode" or tools that rewrite the partition
+table: the image must land sector-by-sector.
+
+> [!WARNING]
+> Flashing erases the entire destination drive: double-check the disk letter
+> before writing.

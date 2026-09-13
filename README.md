@@ -495,6 +495,9 @@ cros flash usb:// ~/chromiumos/src/overlays/prismOS/output/prismOS_slim_legacy.i
 
 # or, from a booted Linux system
 sudo dd if=prismOS_slim_legacy.img of=/dev/sdX bs=8M status=progress conv=fsync
+
+# from Windows: balenaEtcher ("Flash from file") or Rufus in DD-image mode
+# (never ISO mode: the image must be written sector by sector)
 ```
 
 On the target: disable Verified Boot (`dev` images are born with
