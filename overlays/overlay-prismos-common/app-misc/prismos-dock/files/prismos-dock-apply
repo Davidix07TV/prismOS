@@ -59,7 +59,12 @@ VERSION = "1.0.0"
 SHELF_CONF_DEFAULT = "/usr/share/prismos/ash-shelf.conf"
 SHELF_JSON_SKEL = "/etc/skel/.config/chromiumos/shelf.json"
 SHELF_JSON_USER = "/home/chronos/.config/chromiumos/shelf.json"
-POLICY_DIR = "/etc/chromium/policies/managed"
+# Chromium builds read managed policies from /etc/chromium/policies, branded
+# builds (official Chrome, FydeOS) from /etc/opt/chrome/policies: the dock
+# policy is written in every location so Ash enforces it on all of them.
+POLICY_DIRS = ("/etc/chromium/policies/managed",
+               "/etc/opt/chrome/policies/managed")
+POLICY_DIR = POLICY_DIRS[0]
 POLICY_FILE = os.path.join(POLICY_DIR, "zz-prismos-dock.json")
 ICON_THEME_ROOT = "/usr/share/icons/prismOS-Squircle"
 GTK_SETTINGS = "/etc/xdg/gtk-3.0/settings.ini"
@@ -628,6 +633,12 @@ def _register_gtk_theme() -> None:
 # 5. Verifica
 # ---------------------------------------------------------------------------
 def verify(path: str = POLICY_FILE) -> bool:
+    if not os.path.exists(path):
+        for alt_dir in POLICY_DIRS:
+            candidate = os.path.join(alt_dir, "zz-prismos-dock.json")
+            if os.path.exists(candidate):
+                path = candidate
+                break
     if not os.path.isfile(path):
         warn(f"{path} assente")
         return False
@@ -712,6 +723,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     if not args.prefs_only and not args.icons_only:
         if not write_policy(conf, shelf_items, pool):
             rc = 1
+        for extra_dir in POLICY_DIRS[1:]:
+            write_policy(conf, shelf_items, pool,
+                         path=os.path.join(extra_dir, "zz-prismos-dock.json"))
     if not args.policy_only and not args.icons_only:
         patch_local_state(conf)
         propagate_shelf_json()

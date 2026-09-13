@@ -84,7 +84,8 @@ Two alternative routes, never both:
   server, and `--arc-availability=none`. No local JSON policy, which would take precedence
   over the cloud one.
 * **Route B — Local-Policy.**
-  `/etc/chromium/policies/managed/prismos_policy.json` derived from the template
+  `/etc/chromium/policies/managed/prismos_policy.json` (mirrored to
+  `/etc/opt/chrome/policies/managed/` for branded builds) derived from the template
   `overlays/overlay-prismos-edu/chrome_policy.json` (81 keys): URLBlocklist on TikTok,
   YouTube, Twitch, social networks, gaming, anonymous proxies and adult content;
   URLAllowlist on the school domain, ministerial services, Workspace for Education,

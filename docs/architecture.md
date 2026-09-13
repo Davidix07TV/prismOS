@@ -139,11 +139,14 @@ In addition:
 ├── slim-launcher.conf        on-demand thresholds and behaviour (Slim only)
 └── edu.conf / home-tuning.conf / work.conf / slim-tuning.conf
 
-/etc/chromium/policies/managed/
+/etc/chromium/policies/managed/          (Chromium builds)
+/etc/opt/chrome/policies/managed/        (branded builds: official Chrome, FydeOS)
 ├── prismos_policy.json       edition policy (EDU Route B, Work)
 └── zz-prismos-dock.json      ShelfAlignment, ShelfAutoHideBehavior, PinnedLauncherApps,
                               WebAppInstallForceList (the zz- prefix guarantees that
                               Chromium loads them last and therefore wins conflicts)
+Both directories are always populated: Chromium reads the first, branded Chrome
+reads the second (Chromium docs/enterprise/policies.md).
 
 /etc/skel/.config/chromiumos/shelf.json
                               dock preferences for every new user profile

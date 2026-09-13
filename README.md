@@ -334,7 +334,9 @@ No local JSON policy is installed: device policies would take precedence over cl
 #### Route B — Local-Policy
 
 No Google infrastructure at all: the policy is written to
-`/etc/chromium/policies/managed/prismos_policy.json` from the template
+`/etc/chromium/policies/managed/prismos_policy.json` (mirrored to
+`/etc/opt/chrome/policies/managed/` for branded builds such as FydeOS and
+Chrome-branded ChromiumOS) from the template
 `overlays/overlay-prismos-edu/chrome_policy.json` (81 keys), with a **URLBlocklist**
 covering TikTok, YouTube and Twitch (CDNs, shorteners and related domains), a
 **URLAllowlist** covering the school domain, ministerial services, Workspace for Education,

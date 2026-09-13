@@ -65,6 +65,13 @@ readonly TEMPLATE_DOMAIN="scuola.edu"
 readonly REL_BROWSER_DEFAULTS="/etc/default/chromium-browser"
 readonly REL_POLICY_DIR="/etc/chromium/policies/managed"
 readonly REL_POLICY_FILE="/etc/chromium/policies/managed/prismos_policy.json"
+# Branded builds (official Chrome, FydeOS, Chrome-branded ChromiumOS) read the
+# managed policies from /etc/opt/chrome/policies, Chromium builds from
+# /etc/chromium/policies (see Chromium docs/enterprise/policies.md). prismOS
+# installs every policy in BOTH locations so the same image behaves identically
+# on open-source ChromiumOS builds and on branded derivatives.
+readonly REL_POLICY_DIR_BRANDED="/etc/opt/chrome/policies/managed"
+readonly REL_POLICY_FILE_BRANDED="/etc/opt/chrome/policies/managed/prismos_policy.json"
 readonly REL_EDITION_CONF="/etc/prismos/edition.conf"
 
 # Pattern di blocco predefiniti della Strada B (distrazione didattica).
@@ -350,6 +357,37 @@ install_file() {
 		install -D -m "${mode}" "${src}" "${dst}" || die 1 "scrittura fallita: ${dst}"
 	fi
 	log_ok "scritto: ${dst}"
+}
+
+# Restituisce il file di policy realmente presente: prima il percorso Chromium,
+# poi quello branded; se nessuno esiste, il percorso Chromium primario.
+policy_file_primary() {
+	local candidate
+	for candidate in "${REL_POLICY_FILE}" "${REL_POLICY_FILE_BRANDED}"; do
+		if [[ -f "$(target_path "${candidate}")" ]]; then
+			printf '%s\n' "$(target_path "${candidate}")"
+			return 0
+		fi
+	done
+	printf '%s\n' "$(target_path "${REL_POLICY_FILE}")"
+	return 0
+}
+
+# Copia la policy appena installata anche nel percorso branded.
+mirror_policy_branded() {
+	local src="$1" dst
+	dst="$(target_path "${REL_POLICY_FILE_BRANDED}")"
+	if [[ ${ARG_DRY_RUN} -eq 1 ]]; then
+		log_info "[dry-run] mirror branded: ${dst}"
+		return 0
+	fi
+	install -D -m 0644 "${src}" "${dst}" 2>/dev/null || \
+		${PRIVILEGED} install -D -m 0644 "${src}" "${dst}" || {
+			log_warn "mirror branded non riuscito: ${dst}"
+			return 1
+		}
+	log_ok "policy installata anche nel percorso branded: ${dst}"
+	return 0
 }
 
 remove_file() {
@@ -640,6 +678,7 @@ PY
 	json_validate "${out}" || die 1 "la policy generata non e' JSON valido"
 
 	install_file "${out}" "$(target_path "${REL_POLICY_FILE}")" 0644
+	mirror_policy_branded "$(target_path "${REL_POLICY_FILE}")" || true
 
 	if [[ -n "${ARG_JSON_OUT}" ]]; then
 		ensure_dir "$(dirname "${ARG_JSON_OUT}")"
@@ -665,7 +704,7 @@ apply_strada_a() {
 		log_warn "per le chiavi che definisce (UserAllowlist, ArcEnabled, guest, VM)"
 	else
 		local existing
-		existing="$(target_path "${REL_POLICY_FILE}")"
+		existing="$(policy_file_primary)"
 		if [[ -f "${existing}" ]]; then
 			log_warn "trovata una policy locale di una precedente Strada B: ${existing}"
 			log_warn "le policy di dispositivo vincono su quelle cloud: rimuoverla con"
@@ -718,12 +757,16 @@ PY
 remove_policy() {
 	log_banner "prismOS EDU - rimozione della policy locale"
 
-	local policy_file
-	policy_file="$(target_path "${REL_POLICY_FILE}")"
-	if [[ ! -f "${policy_file}" ]]; then
-		log_warn "nessuna policy locale presente in ${policy_file}"
-	else
-		remove_file "${policy_file}"
+	local policy_file found=0
+	for policy_file in "$(target_path "${REL_POLICY_FILE}")" \
+	                   "$(target_path "${REL_POLICY_FILE_BRANDED}")"; do
+		if [[ -f "${policy_file}" ]]; then
+			remove_file "${policy_file}"
+			found=1
+		fi
+	done
+	if (( found == 0 )); then
+		log_warn "nessuna policy locale presente in $(target_path "${REL_POLICY_FILE}")"
 	fi
 
 	# Riporta il file di avvio del browser alla Strada A pura.
@@ -749,7 +792,7 @@ show_status() {
 
 	local browser_file policy_file edition_file
 	browser_file="$(target_path "${REL_BROWSER_DEFAULTS}")"
-	policy_file="$(target_path "${REL_POLICY_FILE}")"
+	policy_file="$(policy_file_primary)"
 	edition_file="$(target_path "${REL_EDITION_CONF}")"
 
 	printf '\n%sRadice%s: %s\n' "${PRISMOS_C_BOLD}" "${PRISMOS_C_RESET}" "${TARGET_ROOT:-/ (sistema live)}" >&2
@@ -822,7 +865,7 @@ validate_policy() {
 	log_banner "prismOS EDU - validazione"
 	local rc=0
 	local policy_file browser_file
-	policy_file="$(target_path "${REL_POLICY_FILE}")"
+	policy_file="$(policy_file_primary)"
 	browser_file="$(target_path "${REL_BROWSER_DEFAULTS}")"
 
 	# 1. Sintassi del file di avvio del browser.

@@ -1128,6 +1128,15 @@ print("policy Dock: %d pin, %d PWA" % (len(policy.get("PinnedLauncherApps", []))
 PY
 		log_ok "policy Dock generata: ${dock_policy}"
 	fi
+
+	# Branded builds (official Chrome, FydeOS) read managed policies from
+	# /etc/opt/chrome/policies: mirror everything installed in this step.
+	local branded_dir="${board_overlay}/board/etc/opt/chrome/policies/managed"
+	if [[ -d "${policy_dir}" ]]; then
+		ensure_dir "${branded_dir}"
+		cp -a "${policy_dir}/." "${branded_dir}/" || die 1 "mirror delle policy branded fallito"
+		log_ok "policy mirrorizzate in /etc/opt/chrome/policies/managed (build branded, FydeOS)"
+	fi
 }
 
 sync_kernel_splitconfig() {

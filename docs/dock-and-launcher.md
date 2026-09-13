@@ -16,7 +16,7 @@ precedence. prismOS uses all three, because none is sufficient alone:
 
 | # | Mechanism | Path | Authority |
 |---|---|---|---|
-| 1 | **Device policy** | `/etc/chromium/policies/managed/zz-prismos-dock.json` | binding: the user cannot move the shelf nor disable autohide |
+| 1 | **Device policy** | `/etc/chromium/policies/managed/zz-prismos-dock.json`, mirrored to `/etc/opt/chrome/policies/managed/` on branded builds | binding: the user cannot move the shelf nor disable autohide |
 | 2 | **Ash preferences** | `/home/chronos/u-*/Local State` (`ash.shelf.*`) | applied at session start; keep the first login coherent even where policy does not reach (icon size, centring) |
 | 3 | **skel `shelf.json`** | `/etc/skel/.config/chromiumos/shelf.json` | template for new profiles: list of pinned icons and appearance parameters |
 
