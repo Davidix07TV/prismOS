@@ -71,7 +71,7 @@ on:
       chromiumos_path:
         description: "Path of an existing ChromiumOS checkout on the runner (empty = sync from scratch)"
         required: false
-        default: "${{ github.workspace }}/../../chromiumos"
+        default: ""
         type: string
       upload_image:
         description: "Upload the .img as a workflow artifact (large: several GB)"
@@ -209,7 +209,11 @@ jobs:
     if: github.event_name == 'workflow_dispatch'
     name: Build prismOS image (${{ inputs.edition }})
     needs: validate
-    runs-on: ${{ inputs.runner_label }}
+    # The || fallback keeps the label valid on push-triggered runs (where
+    # inputs are null); the job-level if: skips them anyway. Expressions are
+    # NOT allowed in workflow_dispatch input defaults, hence the empty-string
+    # default for chromiumos_path above.
+    runs-on: ${{ inputs.runner_label || 'prismos-builder' }}
     timeout-minutes: 1440
     steps:
       - name: Checkout prismOS
