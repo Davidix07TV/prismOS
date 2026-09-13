@@ -329,9 +329,10 @@ Full guide: [`docs/build-runner.md`](docs/build-runner.md).
 No Linux machine at hand? GitHub-hosted runners **cannot** run the full build
 (6-hour cap per job, 14 GB disk, 10 GB cache; larger runners require a Team
 plan and are billed even on public repos): [`docs/build-cloud.md`](docs/build-cloud.md)
-walks through the two working routes — an hourly cloud builder (a few euros,
-driven entirely from Windows over SSH) and a VirtualBox VM, which is *not* a
-dual boot and touches no partition.
+walks through the working routes — an hourly cloud builder (a few euros,
+driven entirely from Windows over SSH), a VirtualBox VM (which is *not* a dual
+boot and touches no partition) and the no-credit-card options (Azure for
+Students, local VM).
 
 </div>
 

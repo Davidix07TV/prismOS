@@ -207,3 +207,45 @@ trial covers dozens of attempts.
 > the home region: pick another availability domain or region and retry.
 > Destroy the machine as soon as the `.img` is downloaded — leaving a 300 GB
 > VM idle burns credit for nothing.
+
+
+## 6. No credit card at all
+
+Every trial in section 5 asks for a card as identity check. If that is a hard
+no, exactly two routes remain:
+
+### 6.1 Azure for Students — $100 of credit, **no card** (verified 2026)
+
+* **Who**: students enrolled at an accredited school/university (18+ for the
+  full offer; a Student Starter variant exists for younger students), plus
+  educators through the Microsoft education programs.
+* **How**: <https://azure.microsoft.com/free/students> → sign in with a
+  Microsoft account → verify with the **school/university email**; if the
+  domain is not recognized, the flow accepts a **student ID upload** or an
+  existing **GitHub Student Developer Pack** verification.
+* **What you get**: $100 of credit valid 12 months, renewable yearly while
+  enrolled, with a spending limit — when the credit ends the services simply
+  stop; there is no card on file, so no bill can ever arrive.
+* **Build math**: `D8s_v5` (8 vCPU / 32 GB) + a 300–512 GB SSD cost roughly
+  $0.30/hour combined → a full prismOS build (8–12 h) burns **$3–4 of the
+  $100**: enough for 20+ attempts.
+* **Flow**: identical to §5.1 — create the VM in the portal, SSH from the
+  browser terminal, follow §2.1 route A, copy the image out with Azure Cloud
+  Shell (`scp`), delete VM + disk.
+
+> [!WARNING]
+> Only legitimate verification: the "temporary .edu email" generators that
+> surface in search results violate Microsoft's terms and get the account
+> banned together with everything built on it.
+
+### 6.2 Local VM on the Windows PC — €0, no card, no accounts
+
+The VirtualBox route of §3 needs nothing but hardware: if the PC has ≥ 16 GB
+of RAM and ≥ 160 GB of free disk it is the simplest no-card option in
+absolute terms (check with `systeminfo` and `Get-PSDrive C` from PowerShell).
+No time limits, no credits, the `.img` never leaves the machine.
+
+If neither applies — no suitable PC and no school email — then there is no
+free online way to compile ChromiumOS today: the honest options become "wait
+for access to a suitable machine" or the paid hourly cloud of §2 (a few euros,
+one build, server destroyed immediately afterwards).
