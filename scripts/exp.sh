@@ -98,6 +98,9 @@ ${SUDO} cp -a "${STUB}/src/overlays/overlay-amd64-prismos/board/usr/share/prismo
 ${SUDO} cp overlays/overlay-prismos-pro/files/etc/prismos/pro.conf /etc/prismos/ 2>/dev/null
 ${SUDO} cp profiles/pro.conf /etc/prismos/edition.conf 2>/dev/null
 echo work | ${SUDO} tee /etc/prismos/edition-choice >/dev/null
+# The chooser is idempotent by design (stamp file): remove the stamp so the
+# experiment can be re-run any number of times in the same session.
+${SUDO} rm -f /var/lib/prismos/state/edition-choice.done 2>/dev/null
 ${SUDO} bash overlays/overlay-prismos-pro/files/usr/libexec/prismos/prismos-edition-setup
 if grep -q '^PRISMOS_EDITION_ID="work"' /etc/prismos/edition.conf 2>/dev/null; then
 	ok "QUESTA MACCHINA ORA E' prismOS WORK"
