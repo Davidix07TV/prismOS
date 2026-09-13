@@ -249,3 +249,17 @@ If neither applies — no suitable PC and no school email — then there is no
 free online way to compile ChromiumOS today: the honest options become "wait
 for access to a suitable machine" or the paid hourly cloud of §2 (a few euros,
 one build, server destroyed immediately afterwards).
+
+### 6.3 Browser Linux sandboxes (DistroSea and similar): not usable
+
+Services like DistroSea run a real distro in the browser for free and with no
+card, but they are designed for *test-driving* distributions, not building:
+
+| Constraint | Consequence for a ChromiumOS build |
+|---|---|
+| Sessions are live and ephemeral: everything is lost at close | a build takes 8–15 h; even `repo sync` alone (50–100 GB) cannot survive a session |
+| Free VMs are small (paid accounts advertise "increased VM resources, longer sessions") | far below the 8 GiB RAM / 150 GB disk floor |
+| Free sessions frequently lack internet connectivity (an account perk) | the sources cannot even be downloaded |
+
+Same verdict for comparable offerings (online VM trials, distro playgrounds):
+none provides the persistence, size and uninterrupted runtime this build needs.
