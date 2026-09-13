@@ -681,8 +681,12 @@ shelf = {
     "policy_mapping": {
         "ShelfAlignment": os.environ.get("PRISMOS_SHELF_ALIGNMENT", "Bottom"),
         "ShelfAutoHideBehavior": os.environ.get("PRISMOS_SHELF_AUTOHIDE", "Always"),
-        "PinnedLauncherApps": [e["launch_url"] for e in pinned if e["type"] == "Web_App"]
-                              + [e.get("android_package", "") for e in pinned if e["type"] == "Android_Pkg"],
+        # PinnedLauncherApps accetta solo riferimenti ad applicazioni web (URL o
+        # ID del Web Store): i nomi pacchetto Android non sono ID di launcher
+        # validi in una build senza ARC e verrebbero ignorati da Chrome con un
+        # avviso nel log. Le icone Android/Windows restano in pinned_apps, da
+        # cui Ash le aggiunge alla shelf leggendo shelf.json.
+        "PinnedLauncherApps": [e["launch_url"] for e in pinned if e["type"] == "Web_App"],
         "WebAppInstallForceList": [
             {"url": e["launch_url"], "create_url": e.get("install_url") or e["launch_url"]}
             for e in pinned if e["type"] == "Web_App"
