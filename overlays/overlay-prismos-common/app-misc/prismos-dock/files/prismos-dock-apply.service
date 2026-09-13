@@ -1,0 +1,40 @@
+# =============================================================================
+#  prismos-dock-apply.service
+# -----------------------------------------------------------------------------
+#  Applica la configurazione della Dock macOS-like PRIMA che la sessione Ash
+#  avvii Chrome, cosi' la policy di device e' gia' presente quando il
+#  session_manager legge /etc/chromium/policies/managed/.
+#
+#  E' Type=oneshot con RemainAfterExit: la policy e' persistente su disco, il
+#  servizio serve solo a rigenerare i pref e il tema icone ad ogni avvio
+#  (l'utente potrebbe averli modificati durante la sessione precedente).
+# =============================================================================
+[Unit]
+Description=Apply prismOS macOS-like dock/shelf configuration to Ash
+Documentation=https://github.com/Davidix07TV/prismOS/blob/main/docs/dock-and-launcher.md
+After=local-fs.target systemd-tmpfiles-setup.service prismos-firstboot.service
+Before=ui.target session_manager.service chrome.service
+Wants=systemd-tmpfiles-setup.service
+ConditionPathExists=/usr/libexec/prismos/prismos-dock-apply
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/libexec/prismos/prismos-dock-apply --conf /usr/share/prismos/ash-shelf.conf
+ExecReload=/usr/libexec/prismos/prismos-dock-apply --conf /usr/share/prismos/ash-shelf.conf
+TimeoutStartSec=90
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=prismos-dock
+
+# Hardening: il processo scrive solo policy, pref e icone.
+NoNewPrivileges=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+PrivateTmp=yes
+ReadWritePaths=/etc/chromium /etc/xdg /usr/share/icons/prismOS-Squircle /home/chronos
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,61 @@
+# =============================================================================
+#  prismos-accelerator-daemon.service
+# -----------------------------------------------------------------------------
+#  Demone delle scorciatoie globali (Super+Space -> Launcher stile Spotlight).
+#  Deve partire DOPO che la sessione grafica ha creato i device di input e
+#  PRIMA che l'utente inizi a digitare.
+#
+#  Il demone cattura le tastiere (EVIOCGRAB): se morisse tenendo la cattura la
+#  tastiera risulterebbe muta. Le contromisure sono Restart=always, WatchdogSec
+#  e il rilascio del grab nei handler di segnale e nel blocco finally.
+# =============================================================================
+[Unit]
+Description=prismOS global keyboard accelerators (Spotlight-like launcher)
+Documentation=https://github.com/Davidix07TV/prismOS/blob/main/docs/dock-and-launcher.md
+After=systemd-udevd.service systemd-user-sessions.target prismos-dock-apply.service
+Wants=systemd-udevd.service
+ConditionPathExistsGlob=/dev/input/event*
+ConditionPathExists=/dev/uinput
+ConditionCapability=CAP_SYS_ADMIN
+
+[Service]
+Type=notify
+NotifyAccess=main
+ExecStart=/usr/libexec/prismos/prismos-accelerator-daemon --config /usr/share/prismos/accelerators.json
+ExecReload=/bin/kill -HUP $MAINPID
+
+Restart=always
+RestartSec=1
+StartLimitIntervalSec=60
+StartLimitBurst=10
+WatchdogSec=20
+TimeoutStartSec=30
+TimeoutStopSec=10
+
+KillMode=mixed
+KillSignal=SIGTERM
+FinalKillSignal=SIGKILL
+OOMScoreAdjust=-500
+Nice=-5
+
+# Il demone ha bisogno di /dev/input e /dev/uinput; tutto il resto e' chiuso.
+NoNewPrivileges=yes
+ProtectHome=read-only
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+PrivateTmp=yes
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=yes
+LockPersonality=yes
+RestrictRealtime=yes
+DevicePolicy=closed
+DeviceAllow=/dev/input/event* rw
+DeviceAllow=/dev/uinput rw
+DeviceAllow=char-input rw
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=prismos-accel
+
+[Install]
+WantedBy=multi-user.target

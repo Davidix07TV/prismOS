@@ -1,0 +1,19 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=prismOS Subsystem Launcher
+Name[it]=Avvia con prismOS (Android / Windows)
+GenericName=Compatibility Layer Runner
+Comment=Runs .apk through Waydroid (LineageOS 9 x86, no-SSE4.2) and .exe/.msi through Wine/Proton, starting the subsystem on demand and killing it on exit
+Comment[it]=Esegue .apk con Waydroid (LineageOS 9 x86 senza SSE4.2) e .exe/.msi con Wine/Proton, avviando il sottosistema on-demand e terminandolo alla chiusura
+Exec=/usr/bin/prismos-slim-launcher %f
+TryExec=/usr/bin/prismos-slim-launcher
+Icon=prismos-slim-launcher
+Terminal=false
+Categories=System;Emulator;Utility;PackageManager;
+MimeType=application/vnd.android.package-archive;application/x-ms-dos-executable;application/x-msi;application/x-msdownload;application/x-dosexec;
+Keywords=apk;exe;msi;waydroid;wine;android;windows;proton;prismos;slim;
+StartupNotify=true
+NoDisplay=false
+X-PrismOS-OnDemand=true
+X-PrismOS-Subsystem=auto

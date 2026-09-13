@@ -1,0 +1,28 @@
+# =============================================================================
+# prismOS - system set (@system) esteso
+# Ogni riga e' un atom obbligatorio nel world file di build_packages.
+# =============================================================================
+
+# --- Identita' prismOS / Dock macOS-like -----------------------------------
+*app-misc/prismos-dock
+*app-misc/prismos-accelerator-daemon
+*app-misc/prismos-slim-launcher
+
+# --- Sottosistema Android (Waydroid, LineageOS 9 x86 no-SSE4.2) ------------
+*app-emulation/prismos-waydroid-config
+*app-emulation/waydroid
+*app-emulation/lxc
+*dev-python/evdev
+
+# --- Sottosistema Windows (Wine + Proton/Bottles) --------------------------
+*app-emulation/prismos-wine-config
+*app-emulation/wine-staging
+*app-emulation/winetricks
+*app-emulation/dxvk
+*app-emulation/vkd3d-proton
+
+# --- Codec proprietari / Chromium branded ----------------------------------
+*media-libs/libva
+*media-libs/libva-utils
+*x11-libs/libva-intel-driver
+*media-video/ffmpeg

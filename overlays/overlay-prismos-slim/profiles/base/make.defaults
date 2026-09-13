@@ -1,0 +1,42 @@
+# =============================================================================
+#  prismOS Slim :: profiles/base/make.defaults
+# -----------------------------------------------------------------------------
+#  USE di profilo dell'edizione Slim: PC con risorse critiche o <2 GB di RAM.
+#
+#  REGOLA FONDAMENTALE
+#  -------------------
+#  Il supporto a Waydroid e a Wine e' PRESENTE (i flag waydroid/wine/proton sono
+#  attivi e i pacchetti vengono compilati e installati), ma i demoni e i
+#  container restano COMPLETAMENTE SPENTI all'avvio. L'interruttore e'
+#  `slim-ondemand`, che:
+#
+#    1. installa /usr/bin/prismos-slim-launcher e le regole sudo minime
+#    2. installa le drop-in systemd 10-slim-ondemand.conf su
+#         prismos-waydroid-container.service
+#         prismos-waydroid-session@.service
+#         prismos-wine-session@.service
+#       (DefaultDependencies=no, RemainAfterExit=no, MemoryMax, OOMPolicy=kill)
+#    3. fa disabilitare a prismos-firstboot il target prismos-subsystems.target
+#    4. maschera prismos-subsystem-idle.timer (il teardown e' gia' immediato)
+# =============================================================================
+
+PRISMOS_EDITION="prismos_edition_slim"
+PRISMOS_EDITION_ID="slim"
+PROFILE_ONLY_VARIABLES="PRISMOS_EDITION PRISMOS_EDITION_ID"
+
+USE="${USE} prismos_edition_slim slim-ondemand low-ram no-extras \
+single-thread-link waydroid wine proton zram zswap earlyoom \
+-bottles -crostini -virtio-gpu -cloud-gaming -media-stack \
+-pipewire -pulseaudio -cups -gstreamer -vaapi \
+-kiosk-exam -school-lab -m365-suite -vpn-advanced -encrypted-dl -audit-logging"
+
+USE="${USE} -arc -arc-plus -arcplusplus -arcvm"
+
+# I sottosistemi restano dichiarati (i pacchetti sono nel world file) ma il loro
+# avvio e' delegato esclusivamente a prismos-slim-launcher.
+PRISMOS_SUBSYSTEM="prismos_subsystem_waydroid prismos_subsystem_wine"
+
+SYSTEM_PACKAGES="${SYSTEM_PACKAGES} \
+app-misc/prismos-slim-launcher \
+sys-process/earlyoom \
+sys-block/zram-generator"

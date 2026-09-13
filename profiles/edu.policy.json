@@ -1,4 +1,0 @@
-{
-  "allow_apps": ["firefox","libreoffice","geogebra"],
-  "deny_web": ["chatgpt.com","twitch.tv"],
-}

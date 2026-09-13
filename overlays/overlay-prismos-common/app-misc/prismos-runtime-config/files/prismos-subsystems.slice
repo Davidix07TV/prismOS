@@ -1,0 +1,21 @@
+# =============================================================================
+#  prismos-subsystems.slice
+# -----------------------------------------------------------------------------
+#  Slice di controllo per Waydroid e Wine. Il limite MemoryHigh/MemoryMax e' il
+#  guard-rail che impedisce a un sottosistema di mandare in OOM la sessione Ash
+#  su macchine con meno di 2 GB di RAM: systemd interviene prima del kernel.
+# =============================================================================
+[Unit]
+Description=prismOS compatibility subsystems slice
+
+[Slice]
+CPUAccounting=yes
+CPUWeight=90
+MemoryAccounting=yes
+MemoryHigh=1G
+MemoryMax=1536M
+MemorySwapMax=256M
+IOAccounting=yes
+IOWeight=80
+TasksAccounting=yes
+TasksMax=2048

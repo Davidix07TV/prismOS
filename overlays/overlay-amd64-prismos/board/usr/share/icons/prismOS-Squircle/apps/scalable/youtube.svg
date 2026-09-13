@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  YouTube - tema prismOS-Squircle
+  Generata da scripts/generate_app_icons.sh; NON modificare a mano.
+  Forma: squircle (esponente 5.0, raggio 0.28), lato 128.
+-->
+<svg xmlns="http://www.w3.org/2000/svg"
+     xmlns:xlink="http://www.w3.org/1999/xlink"
+     width="128" height="128" viewBox="0 0 128 128"
+     version="1.1" role="img" aria-label="YouTube">
+  <title>YouTube</title>
+  <defs>
+    <path id="shape-youtube" d="M 125.44 64.00 L 125.41 82.40 L 125.32 88.26 L 125.17 92.51 L 124.97 95.96 L 124.70 98.89 L 124.37 101.46 L 123.98 103.76 L 123.52 105.84 L 123.01 107.74 L 122.43 109.48 L 121.78 111.08 L 121.07 112.57 L 120.28 113.94 L 119.43 115.21 L 118.50 116.39 L 117.49 117.49 L 116.39 118.50 L 115.21 119.43 L 113.94 120.28 L 112.57 121.07 L 111.08 121.78 L 109.48 122.43 L 107.74 123.01 L 105.84 123.52 L 103.76 123.98 L 101.46 124.37 L 98.89 124.70 L 95.96 124.97 L 92.51 125.17 L 88.26 125.32 L 82.40 125.41 L 64.00 125.44 L 45.60 125.41 L 39.74 125.32 L 35.49 125.17 L 32.04 124.97 L 29.11 124.70 L 26.54 124.37 L 24.24 123.98 L 22.16 123.52 L 20.26 123.01 L 18.52 122.43 L 16.92 121.78 L 15.43 121.07 L 14.06 120.28 L 12.79 119.43 L 11.61 118.50 L 10.51 117.49 L 9.50 116.39 L 8.57 115.21 L 7.72 113.94 L 6.93 112.57 L 6.22 111.08 L 5.57 109.48 L 4.99 107.74 L 4.48 105.84 L 4.02 103.76 L 3.63 101.46 L 3.30 98.89 L 3.03 95.96 L 2.83 92.51 L 2.68 88.26 L 2.59 82.40 L 2.56 64.00 L 2.59 45.60 L 2.68 39.74 L 2.83 35.49 L 3.03 32.04 L 3.30 29.11 L 3.63 26.54 L 4.02 24.24 L 4.48 22.16 L 4.99 20.26 L 5.57 18.52 L 6.22 16.92 L 6.93 15.43 L 7.72 14.06 L 8.57 12.79 L 9.50 11.61 L 10.51 10.51 L 11.61 9.50 L 12.79 8.57 L 14.06 7.72 L 15.43 6.93 L 16.92 6.22 L 18.52 5.57 L 20.26 4.99 L 22.16 4.48 L 24.24 4.02 L 26.54 3.63 L 29.11 3.30 L 32.04 3.03 L 35.49 2.83 L 39.74 2.68 L 45.60 2.59 L 64.00 2.56 L 82.40 2.59 L 88.26 2.68 L 92.51 2.83 L 95.96 3.03 L 98.89 3.30 L 101.46 3.63 L 103.76 4.02 L 105.84 4.48 L 107.74 4.99 L 109.48 5.57 L 111.08 6.22 L 112.57 6.93 L 113.94 7.72 L 115.21 8.57 L 116.39 9.50 L 117.49 10.51 L 118.50 11.61 L 119.43 12.79 L 120.28 14.06 L 121.07 15.43 L 121.78 16.92 L 122.43 18.52 L 123.01 20.26 L 123.52 22.16 L 123.98 24.24 L 124.37 26.54 L 124.70 29.11 L 124.97 32.04 L 125.17 35.49 L 125.32 39.74 L 125.41 45.60 Z"/>
+    <linearGradient id="bg-youtube" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FF0000"/>
+      <stop offset="0.55" stop-color="#FF0000"/>
+      <stop offset="1" stop-color="#B80000"/>
+    </linearGradient>
+    <linearGradient id="gloss-youtube" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.34"/>
+      <stop offset="0.5" stop-color="#FFFFFF" stop-opacity="0.05"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <use href="#shape-youtube" xlink:href="#shape-youtube" fill="url(#bg-youtube)"
+       stroke="#940000" stroke-opacity="0.45" stroke-width="1.00"/>
+  <use href="#shape-youtube" xlink:href="#shape-youtube" fill="url(#gloss-youtube)"/>
+  <text x="64" y="64" text-anchor="middle" dominant-baseline="central"
+        font-family="Roboto, Cantarell, 'DejaVu Sans', sans-serif"
+        font-size="51.20" font-weight="600" fill="#FFFFFF"
+        fill-opacity="0.96" letter-spacing="1.02">YT</text>
+</svg>

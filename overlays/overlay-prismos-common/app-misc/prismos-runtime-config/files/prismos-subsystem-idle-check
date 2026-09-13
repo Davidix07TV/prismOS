@@ -1,0 +1,195 @@
+#!/usr/bin/env bash
+# =============================================================================
+#  /usr/libexec/prismos/prismos-subsystem-idle-check
+# -----------------------------------------------------------------------------
+#  Eseguito ogni 60 s da prismos-subsystem-idle.timer (EDU/Home/Work).
+#  Se un sottosistema di compatibilita' e' attivo ma nessuna applicazione ospite
+#  lo sta usando da piu' di PRISMOS_SUBSYSTEM_IDLE_TIMEOUT secondi, il
+#  sottosistema viene fermato per restituire RAM alla sessione Ash.
+#
+#  In prismOS Slim questa unita' e' MASCHERATA: il teardown avviene
+#  istantaneamente alla chiusura dell'app, gestito da prismos-slim-launcher.
+#
+#  Logica di idle:
+#    Waydroid -> il container e' "in uso" se esiste almeno un processo il cui
+#                exe risiede in /var/lib/waydroid/rootfs e che non sia uno dei
+#                demoni di base (surfaceflinger, system_server, zygote, netd,
+#                servicemanager, logcat, installd, lmkd, vold, keystore).
+#    Wine     -> la sessione e' "in uso" se wineserver ha almeno un client,
+#                rilevato da `wineserver -w` non bloccante oppure dalla presenza
+#                di processi con exe dentro il prefix.
+# =============================================================================
+
+set -Eeuo pipefail
+shopt -s inherit_errexit
+
+readonly PROG="prismos-subsystem-idle-check"
+readonly EDITION_CONF="/etc/prismos/edition.conf"
+readonly RUN_DIR="/run/prismos"
+readonly WAYDROID_ROOTFS="/var/lib/waydroid/rootfs"
+readonly TIMESTAMP_DIR="${RUN_DIR}/idle"
+
+IDLE_TIMEOUT=300
+WAYDROID_STATE="on-demand"
+WINE_STATE="on-demand"
+
+log() { logger -t prismos-idle -p user.info -- "${PROG}: $*" 2>/dev/null || true; }
+have() { command -v "$1" >/dev/null 2>&1; }
+
+load_conf() {
+  if [[ -f "${EDITION_CONF}" ]]; then
+    # shellcheck disable=SC1090
+    source "${EDITION_CONF}"
+  fi
+  IDLE_TIMEOUT="${PRISMOS_SUBSYSTEM_IDLE_TIMEOUT:-${SUBSYSTEM_IDLE_TIMEOUT:-300}}"
+  WAYDROID_STATE="${PRISMOS_WAYDROID_BOOT_STATE:-${WAYDROID_BOOT_STATE:-on-demand}}"
+  WINE_STATE="${PRISMOS_WINE_BOOT_STATE:-${WINE_BOOT_STATE:-on-demand}}"
+
+  if ! [[ "${IDLE_TIMEOUT}" =~ ^[0-9]+$ ]]; then
+    IDLE_TIMEOUT=300
+  fi
+  if (( IDLE_TIMEOUT == 0 )); then
+    log "idle timeout disattivato (0): nessuna azione"
+    exit 0
+  fi
+}
+
+unit_active() {
+  local state
+  state="$(systemctl is-active "$1" 2>/dev/null || true)"
+  [[ "${state}" == "active" ]]
+}
+
+# Ultimo momento (epoch) in cui il sottosistema e' risultato "in uso".
+touch_marker() {
+  local name="$1"
+  mkdir -p "${TIMESTAMP_DIR}" 2>/dev/null || true
+  : > "${TIMESTAMP_DIR}/${name}" 2>/dev/null || true
+}
+
+marker_age() {
+  local name="$1"
+  local f="${TIMESTAMP_DIR}/${name}" now mtime
+  if [[ ! -e "${f}" ]]; then
+    touch_marker "${name}"
+    echo 0
+    return 0
+  fi
+  now="$(date +%s)"
+  mtime="$(stat -c '%Y' "${f}" 2>/dev/null || echo "${now}")"
+  echo $(( now - mtime ))
+}
+
+# --- Waydroid ------------------------------------------------------------------
+waydroid_has_running_app() {
+  local base="surfaceflinger system_server zygote zygote_secondary netd \
+servicemanager hwservicemanager vndservicemanager logcat installd lmkd vold \
+keystore gatekeeperd storaged audioserver cameraserver mediaserver \
+media.extractor media.codec tombstoned statsd wp wificond idmap \
+webview_zygote traced traced_probes"
+
+  local pid exe name skip b
+  while read -r pid; do
+    [[ -n "${pid}" ]] || continue
+    exe="$(readlink -f "/proc/${pid}/exe" 2>/dev/null || true)"
+    case "${exe}" in
+      "${WAYDROID_ROOTFS}"/*) ;;
+      *) continue ;;
+    esac
+    name="$(cat "/proc/${pid}/comm" 2>/dev/null || true)"
+    skip=0
+    for b in ${base}; do
+      if [[ "${name}" == "${b}" ]]; then skip=1; break; fi
+    done
+    if (( skip == 0 )); then return 0; fi
+  done < <(ls /proc 2>/dev/null | grep -E '^[0-9]+$' || true)
+
+  return 1
+}
+
+check_waydroid() {
+  if [[ "${WAYDROID_STATE}" == "on-demand" || "${WAYDROID_STATE}" == "disabled" \
+     || "${WAYDROID_STATE}" == "masked" ]]; then
+    log "Waydroid in modalita' ${WAYDROID_STATE}: il reaper di idle non interviene"
+    return 0
+  fi
+  unit_active prismos-waydroid-container.service || return 0
+
+  if waydroid_has_running_app; then
+    touch_marker waydroid
+    log "Waydroid in uso da un'applicazione: nessun intervento"
+    return 0
+  fi
+
+  local age
+  age="$(marker_age waydroid)"
+  if (( age >= IDLE_TIMEOUT )); then
+    log "Waydroid inattivo da ${age}s (>= ${IDLE_TIMEOUT}s): arresto del container"
+    systemctl stop 'prismos-waydroid-session@*.service' >/dev/null 2>&1 || \
+      systemctl stop prismos-waydroid-session@1000.service >/dev/null 2>&1 || true
+    systemctl stop prismos-waydroid-container.service >/dev/null 2>&1 || true
+    rm -f "${TIMESTAMP_DIR}/waydroid" 2>/dev/null || true
+    log "RAM disponibile ora: $(awk '/^MemAvailable:/ { printf "%d MiB", $2/1024 }' /proc/meminfo)"
+  else
+    log "Waydroid inattivo da ${age}s (soglia ${IDLE_TIMEOUT}s)"
+  fi
+}
+
+# --- Wine ------------------------------------------------------------------------
+wine_has_running_app() {
+  local pid exe
+  while read -r pid; do
+    [[ -n "${pid}" ]] || continue
+    exe="$(readlink -f "/proc/${pid}/exe" 2>/dev/null || true)"
+    case "${exe}" in
+      */WineBottles/*|*/wine/*|*/.wine/*)
+        local name
+        name="$(cat "/proc/${pid}/comm" 2>/dev/null || true)"
+        # wineserver e il loader non contano come "applicazione in uso".
+        case "${name}" in
+          wineserver|wine|wine64|wineserver-preload) continue ;;
+          *) return 0 ;;
+        esac
+        ;;
+    esac
+  done < <(ls /proc 2>/dev/null | grep -E '^[0-9]+$' || true)
+  return 1
+}
+
+check_wine() {
+  if [[ "${WINE_STATE}" == "on-demand" || "${WINE_STATE}" == "disabled" \
+     || "${WINE_STATE}" == "masked" ]]; then
+    log "Wine in modalita' ${WINE_STATE}: il reaper di idle non interviene"
+    return 0
+  fi
+  unit_active 'prismos-wine-session@1000.service' || return 0
+
+  if wine_has_running_app; then
+    touch_marker wine
+    log "Wine in uso da un'applicazione: nessun intervento"
+    return 0
+  fi
+
+  local age
+  age="$(marker_age wine)"
+  if (( age >= IDLE_TIMEOUT )); then
+    log "Wine inattivo da ${age}s (>= ${IDLE_TIMEOUT}s): arresto della sessione"
+    if have wineserver; then
+      sudo -u chronos wineserver -k >/dev/null 2>&1 || true
+    fi
+    systemctl stop 'prismos-wine-session@*.service' >/dev/null 2>&1 || \
+      systemctl stop prismos-wine-session@1000.service >/dev/null 2>&1 || true
+    rm -f "${TIMESTAMP_DIR}/wine" 2>/dev/null || true
+    log "RAM disponibile ora: $(awk '/^MemAvailable:/ { printf "%d MiB", $2/1024 }' /proc/meminfo)"
+  else
+    log "Wine inattivo da ${age}s (soglia ${IDLE_TIMEOUT}s)"
+  fi
+}
+
+main() {
+  load_conf
+  check_waydroid
+  check_wine
+}
+
+main "$@"

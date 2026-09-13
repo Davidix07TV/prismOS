@@ -1,1 +1,56 @@
+# =============================================================================
+#  prismOS .gitignore
+#  La repository contiene SOLO sorgenti: overlay, profili, kernel splitconfig,
+#  script e documentazione. Tutto cio' che e' generato o scaricato resta fuori.
+# =============================================================================
+
+# --- artefatti di build -------------------------------------------------------
+build/
 output/
+chroot/
+*.img
+*.img.info
+*.bin
+*.zip
+*.tar
+*.tar.xz
+*.xz
+*.iso
+
+# --- staging e temporanei -----------------------------------------------------
+.tmp/
+tmp/
+*.tmp
+*.bak
+*.orig
+*.rej
+*~
+.\#*
+\#*\#
+
+# --- rapporti di verifica -----------------------------------------------------
+*.isa-report.txt
+*.isa-report.json
+isa-report.*
+*-isa.txt
+*-isa.json
+
+# --- Python -------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# --- editor / tooling ---------------------------------------------------------
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+compile_commands.json
+
+# --- log ----------------------------------------------------------------------
+*.log
+logs/

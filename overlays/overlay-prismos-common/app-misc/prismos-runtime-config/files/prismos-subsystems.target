@@ -1,0 +1,25 @@
+# =============================================================================
+#  prismos-subsystems.target
+# -----------------------------------------------------------------------------
+#  Punto di aggancio unico dei sottosistemi di compatibilita' (Waydroid, Wine,
+#  Crostini). Le edizioni decidono SE il target e' attivo:
+#
+#    EDU  -> enable  (Waydroid attivo, Wine mascherato)
+#    Home -> enable  (Waydroid + Wine attivi, idle timeout 900 s)
+#    Work -> enable  (Wine attivo, Waydroid on-demand)
+#    Slim -> DISABLE (nessun sottosistema parte al boot; avvio on-demand via
+#                      /usr/bin/prismos-slim-launcher)
+#
+#  Disabilitare questo singolo target spegne l'intero strato di compatibilita'
+#  senza disinstallare nulla: e' il meccanismo usato dalla edizione Slim.
+# =============================================================================
+[Unit]
+Description=prismOS compatibility subsystems (Waydroid, Wine, Crostini)
+Documentation=https://github.com/Davidix07TV/prismOS/blob/main/docs/architecture.md
+After=graphical.target systemd-user-sessions.target
+Wants=graphical.target
+AllowIsolate=no
+JobTimeoutSec=180
+
+[Install]
+WantedBy=multi-user.target

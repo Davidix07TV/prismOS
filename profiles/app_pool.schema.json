@@ -1,0 +1,258 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://raw.githubusercontent.com/Davidix07TV/prismOS/main/profiles/app_pool.schema.json",
+  "title": "prismOS Application Pool",
+  "description": "Schema del database delle applicazioni selezionabili nelle quattro edizioni di prismOS. Viene validato da scripts/build_iso.sh prima della generazione di /etc/skel/.config/chromiumos/shelf.json.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "pool_id",
+    "isa_floor",
+    "type_taxonomy",
+    "runtime_engines",
+    "applications",
+    "flavor_bundles",
+    "validation"
+  ],
+  "additionalProperties": true,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "pool_id": { "type": "string", "minLength": 3 },
+    "generated_by": { "type": "string" },
+    "updated": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+    "isa_floor": {
+      "type": "string",
+      "enum": ["x86_64-SSE4.1", "x86_64-SSSE3"],
+      "description": "Floor ISA garantito dall'immagine. SSE4.2 non e' ammesso."
+    },
+    "description": { "type": "string" },
+    "type_taxonomy": {
+      "type": "object",
+      "required": ["Web_App", "Android_Pkg", "Windows_Pkg"],
+      "additionalProperties": false,
+      "patternProperties": {
+        "^(Web_App|Android_Pkg|Windows_Pkg)$": {
+          "type": "object",
+          "required": ["runtime", "install_mechanism", "pin_mechanism", "isa_constraint", "subsystem"],
+          "properties": {
+            "runtime": { "type": "string" },
+            "install_mechanism": { "type": "string" },
+            "pin_mechanism": { "type": "string" },
+            "isa_constraint": { "type": "string" },
+            "subsystem": { "type": "string" }
+          }
+        }
+      }
+    },
+    "runtime_engines": {
+      "type": "object",
+      "required": ["web", "android", "windows"],
+      "properties": {
+        "web": {
+          "type": "object",
+          "required": ["binary", "engine", "flags_source"],
+          "properties": {
+            "binary": { "type": "string" },
+            "engine": { "type": "string" },
+            "flags_source": { "type": "string" },
+            "gpu": { "type": "string" },
+            "drm": { "type": "string" },
+            "codecs": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "android": {
+          "type": "object",
+          "required": ["container", "image", "images_path", "unit_container", "unit_session", "abi_supported", "arm_translation"],
+          "properties": {
+            "container": { "type": "string" },
+            "image": { "type": "string" },
+            "images_path": { "type": "string" },
+            "unit_container": { "type": "string" },
+            "unit_session": { "type": "string" },
+            "abi_supported": {
+              "type": "array",
+              "items": { "type": "string", "enum": ["x86", "x86_64", "armeabi-v7a", "arm64-v8a"] },
+              "minItems": 1
+            },
+            "arm_translation": {
+              "type": "boolean",
+              "enum": [false],
+              "description": "Deve essere false: houdini/ndk_translation richiedono SSE4.2."
+            },
+            "notes": { "type": "string" }
+          }
+        },
+        "windows": {
+          "type": "object",
+          "required": ["layer", "prefix_root", "unit_session", "d3d_backend", "dxvk_available", "arch_supported"],
+          "properties": {
+            "layer": { "type": "string" },
+            "prefix_root": { "type": "string" },
+            "unit_session": { "type": "string" },
+            "d3d_backend": { "type": "string", "enum": ["wined3d", "dxvk", "vkd3d"] },
+            "dxvk_available": { "type": "boolean" },
+            "dxvk_reason": { "type": "string" },
+            "arch_supported": {
+              "type": "array",
+              "items": { "type": "string", "enum": ["win32", "win64"] }
+            },
+            "frontend": { "type": "string" }
+          }
+        }
+      }
+    },
+    "applications": {
+      "type": "array",
+      "minItems": 15,
+      "items": { "$ref": "#/definitions/application" }
+    },
+    "flavor_bundles": {
+      "type": "object",
+      "required": ["edu", "home", "work", "slim"],
+      "additionalProperties": false,
+      "properties": {
+        "edu": { "$ref": "#/definitions/bundle" },
+        "home": { "$ref": "#/definitions/bundle" },
+        "work": { "$ref": "#/definitions/bundle" },
+        "slim": { "$ref": "#/definitions/bundle" }
+      }
+    },
+    "dock_defaults": {
+      "type": "object",
+      "properties": {
+        "config_file": { "type": "string" },
+        "shelf_json": { "type": "string" },
+        "alignment": { "type": "string", "enum": ["Bottom", "Left", "Right"] },
+        "autohide": { "type": "string", "enum": ["Always", "Never", "OnFullScreen"] },
+        "centered": { "type": "boolean" },
+        "icon_size": { "type": "integer", "minimum": 24, "maximum": 96 },
+        "squircle_radius": { "type": "number", "minimum": 0.0, "maximum": 0.5 },
+        "squircle_exponent": { "type": "number", "minimum": 2.0, "maximum": 10.0 },
+        "launcher_accelerator": { "type": "string" }
+      }
+    },
+    "validation": {
+      "type": "object",
+      "required": ["required_fields", "allowed_types", "uniqueness"],
+      "properties": {
+        "required_fields": { "type": "array", "items": { "type": "string" }, "minItems": 5 },
+        "allowed_types": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["Web_App", "Android_Pkg", "Windows_Pkg"] },
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "allowed_categories": { "type": "array", "items": { "type": "string" } },
+        "uniqueness": { "type": "array", "items": { "type": "string" } },
+        "isa_rule": { "type": "string" }
+      }
+    }
+  },
+  "definitions": {
+    "application": {
+      "type": "object",
+      "required": ["id", "name", "type", "category", "launch_url", "icon", "flavors", "sse42_required"],
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9._-]{1,63}$",
+          "description": "Identificatore univoco; usato come nome file dell'icona squircle e come chiave nella Shelf."
+        },
+        "name": { "type": "string", "minLength": 2 },
+        "type": { "type": "string", "enum": ["Web_App", "Android_Pkg", "Windows_Pkg"] },
+        "category": {
+          "type": "string",
+          "enum": [
+            "education", "productivity", "communication", "creativity", "media",
+            "gaming", "development", "utilities", "system"
+          ]
+        },
+        "launch_url": {
+          "type": "string",
+          "minLength": 8,
+          "description": "URL https:// per Web_App, waydroid://app/<package> per Android_Pkg, wine://<percorso nel prefix> per Windows_Pkg."
+        },
+        "install_url": { "type": "string" },
+        "scope": { "type": "string" },
+        "icon": { "type": "string", "pattern": "^/usr/share/icons/" },
+        "glyph": { "type": "string", "minLength": 1, "maxLength": 3 },
+        "color": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$" },
+        "app_window": { "type": "boolean" },
+        "requires_signin": { "type": "boolean" },
+        "offline_capable": { "type": "boolean" },
+        "min_ram_mb": { "type": "integer", "minimum": 32, "maximum": 8192 },
+        "sse42_required": {
+          "type": "boolean",
+          "enum": [false],
+          "description": "Vincolo di progetto: nessuna applicazione del pool puo' richiedere SSE4.2 o POPCNT."
+        },
+        "drm": { "type": "string", "enum": ["widevine-l1", "widevine-l3", "none"] },
+        "android_package": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_]*(\\.[a-zA-Z0-9_]+)+$" },
+        "android_activity": { "type": "string" },
+        "source": { "type": "string", "enum": ["fdroid", "sideload", "local"] },
+        "source_index": { "type": "string" },
+        "abi": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["x86", "x86_64"] },
+          "minItems": 1,
+          "description": "Solo ABI x86: la traduzione ARM e' esclusa dal floor ISA."
+        },
+        "arm_translation_required": { "type": "boolean", "enum": [false] },
+        "min_android_api": { "type": "integer", "minimum": 14, "maximum": 28 },
+        "wine_prefix": { "type": "string" },
+        "wine_arch": { "type": "string", "enum": ["win32", "win64"] },
+        "installer_args": { "type": "array", "items": { "type": "string" } },
+        "post_install_binary": { "type": "string" },
+        "wine_dependencies": { "type": "array", "items": { "type": "string" } },
+        "mime_types": { "type": "array", "items": { "type": "string" } },
+        "flavors": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["edu", "home", "work", "slim"] },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "alternatives": { "type": "array", "items": { "type": "string" } },
+        "notes": { "type": "string" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "type": { "const": "Web_App" } } },
+          "then": {
+            "properties": { "launch_url": { "type": "string", "pattern": "^https://" } },
+            "required": ["install_url"]
+          }
+        },
+        {
+          "if": { "properties": { "type": { "const": "Android_Pkg" } } },
+          "then": {
+            "required": ["android_package", "abi", "source"],
+            "properties": { "launch_url": { "type": "string", "pattern": "^waydroid://" } }
+          }
+        },
+        {
+          "if": { "properties": { "type": { "const": "Windows_Pkg" } } },
+          "then": {
+            "required": ["wine_prefix", "wine_arch", "installer_args"],
+            "properties": { "launch_url": { "type": "string", "pattern": "^wine://" } }
+          }
+        }
+      ]
+    },
+    "bundle": {
+      "type": "object",
+      "required": ["display_name", "preselected", "default_pinned", "notes"],
+      "properties": {
+        "display_name": { "type": "string" },
+        "preselected": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+        "default_pinned": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+        "blocked_by_policy": { "type": "array", "items": { "type": "string" } },
+        "max_pinned": { "type": "integer", "minimum": 1, "maximum": 24 },
+        "notes": { "type": "string" }
+      }
+    }
+  }
+}

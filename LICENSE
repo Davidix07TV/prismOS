@@ -1,0 +1,65 @@
+MIT License
+
+Copyright (c) 2026 The prismOS Authors (Davidix07TV and contributors)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---------------------------------------------------------------------------
+
+AMBITO DI QUESTA LICENZA
+------------------------
+
+Questa licenza copre il codice e le configurazioni ORIGINALI di prismOS:
+
+  scripts/                  build_iso.sh, set_edu_policy.sh, sync_overlays.sh,
+                            verify_legacy_cpu.sh, generate_app_icons.sh,
+                            provision_waydroid_image.sh, lib/
+  overlays/                 overlay-prismos-common, overlay-prismos-{edu,home,
+                            work,slim}, overlay-amd64-prismos (make.conf, profili
+                            Portage, ebuild, unita' systemd, script di runtime,
+                            proprieta' ART, splitconfig di board)
+  kernel/                   splitconfig chromiumos-x86_64/prismos_legacy
+  profiles/                 app_pool.json, app_pool.schema.json, <edizione>.conf
+  docs/, README.md          documentazione
+
+  overlays/overlay-amd64-prismos/board/usr/share/icons/prismOS-Squircle/
+                            tema di icone (licenza MIT, vedere il LICENSE incluso
+                            nel tema stesso)
+
+NON copre i componenti di terze parti che un'immagine prismOS incorpora o da cui
+dipende, ciascuno soggetto alla propria licenza e distribuito secondo i termini
+del progetto di appartenenza:
+
+  ChromiumOS / Chromium / Ash-Aura     BSD-3-Clause e licenze dei componenti
+  Gentoo Portage, eclass, toolchain    GPL-2 e licenze dei singoli pacchetti
+  Linux kernel (splitconfig incluso)   GPL-2
+  Waydroid                             GPL-3
+  LineageOS / Android (AOSP)           Apache-2.0, GPL-2, LGPL
+  Wine, Proton                         LGPL-2.1+ e GPL-2+ con eccezione
+  Mesa, crocus, i965, libva            MIT
+  LXC                                  GPL-2
+  Widevine CDM (Google)                termini proprietari Google: distribuito
+                                       esclusivamente attraverso i canali previsti
+                                       da ChromiumOS, mai ridistribuito in questa
+                                       repository
+
+Le icone generate da scripts/generate_app_icons.sh sono segnaposto vettoriali
+originali (glifo testuale su fondo squircle) e NON riproducono i loghi ufficiali
+delle applicazioni citate. Tutti i marchi e i nomi di prodotto appartengono ai
+rispettivi titolari e sono citati a solo scopo descrittivo.

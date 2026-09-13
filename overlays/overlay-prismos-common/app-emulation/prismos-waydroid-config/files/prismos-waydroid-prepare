@@ -1,0 +1,311 @@
+#!/usr/bin/env bash
+# =============================================================================
+#  /usr/libexec/prismos/prismos-waydroid-prepare
+# -----------------------------------------------------------------------------
+#  ExecStartPre di prismos-waydroid-container.service.
+#  Predispone l'ambiente ospite richiesto da Waydroid su kernel ChromeOS:
+#
+#    1. carica/verifica binder (binderfs) e il fallback ashmem
+#    2. monta /dev/binderfs e crea i nodi binder,hwbinder,vndbinder
+#    3. crea il bridge waydroid0 (192.168.240.1/24), abilita forwarding e NAT
+#    4. prepara le directory del container (overlay, rootfs, images)
+#    5. scrive /run/prismos/waydroid-<uid>.env con il socket Wayland reale della
+#       sessione Ash (su ChromeOS/Exo il socket e' tipicamente "wayland-exo")
+#
+#  Tutto cio' che viene creato qui e' rimosso da prismos-waydroid-cleanup, che
+#  gira come ExecStopPost: in prismOS Slim il ciclo completo dura quanto
+#  l'applicazione Android, poi la RAM torna libera.
+# =============================================================================
+
+set -Eeuo pipefail
+shopt -s inherit_errexit
+
+readonly PROG="prismos-waydroid-prepare"
+readonly WAYDROID_ROOT="/var/lib/waydroid"
+readonly IMAGES_DIR="${WAYDROID_ROOT}/images"
+readonly LXC_DIR="${WAYDROID_ROOT}/lxc"
+readonly BINDERFS_MOUNT="/dev/binderfs"
+readonly BRIDGE_NAME="waydroid0"
+readonly BRIDGE_ADDR="192.168.240.1/24"
+readonly BRIDGE_NET="192.168.240.0/24"
+readonly RUN_DIR="/run/prismos"
+readonly LOG_TAG="prismos-waydroid"
+
+log() { logger -t "${LOG_TAG}" -p user.info -- "${PROG}: $*" 2>/dev/null || true; printf '%s: %s\n' "${PROG}" "$*" >&2; }
+err() { logger -t "${LOG_TAG}" -p user.err  -- "${PROG}: $*" 2>/dev/null || true; printf '%s: ERRORE %s\n' "${PROG}" "$*" >&2; }
+
+have() { command -v "$1" >/dev/null 2>&1; }
+
+need_root() {
+  if [[ ${EUID} -ne 0 ]]; then
+    err "esecuzione consentita solo a root (unita' systemd di sistema)"
+    exit 1
+  fi
+}
+
+# --- 1. binder / ashmem --------------------------------------------------------
+setup_binder() {
+  # Kernel >= 5.0: binderfs. Il modulo binder_linux crea la fs "binder".
+  if [[ ! -d "${BINDERFS_MOUNT}" ]]; then
+    mkdir -p "${BINDERFS_MOUNT}"
+  fi
+
+  if ! grep -qE '[[:space:]]binder[[:space:]]' /proc/filesystems 2>/dev/null; then
+    if modprobe binder_linux 2>/dev/null; then
+      log "modulo binder_linux caricato"
+    elif [[ ! -e /dev/binder ]]; then
+      err "binderfs non supportato e /dev/binder assente:"
+      err "  ricompilare il kernel con CONFIG_ANDROID_BINDER_IPC=y e"
+      err "  CONFIG_ANDROID_BINDERFS=y (kernel/chromeos/config/.../android.config)"
+      exit 1
+    fi
+  fi
+
+  if ! mountpoint -q "${BINDERFS_MOUNT}" 2>/dev/null; then
+    if mount -t binder binder "${BINDERFS_MOUNT}"; then
+      log "binderfs montato in ${BINDERFS_MOUNT}"
+    elif [[ -c /dev/binder ]]; then
+      log "binderfs non montabile, uso il nodo statico /dev/binder"
+    else
+      err "mount di binderfs fallito"
+      exit 1
+    fi
+  fi
+
+  # I tre nodi richiesti da Android 9: binder (app<->system), hwbinder (HAL),
+  # vndbinder (vendor). Vengono creati esplicitamente perche' alcuni kernel
+  # montano binderfs vuoto quando CONFIG_ANDROID_BINDER_DEVICES="".
+  local node
+  for node in binder hwbinder vndbinder; do
+    if [[ ! -e "${BINDERFS_MOUNT}/${node}" && -w "${BINDERFS_MOUNT}/binder-control" ]]; then
+      if printf '%s' "${node}" > "${BINDERFS_MOUNT}/binder-control" 2>/dev/null; then
+        log "nodo ${node} creato in binderfs"
+      fi
+    fi
+  done
+
+  # ashmem: rimosso dal kernel in 5.18 (sostituito da memfd). Waydroid usa il
+  # modulo out-of-tree ashmem_linux quando disponibile; altrimenti il fallback
+  # memfd e' gia' attivo dentro il container Android 9.
+  if [[ ! -c /dev/ashmem ]]; then
+    if modprobe ashmem_linux 2>/dev/null; then
+      log "modulo ashmem_linux caricato"
+    else
+      log "ashmem non presente: il container usera' il fallback memfd"
+    fi
+  fi
+}
+
+# --- 3. rete del container ------------------------------------------------------
+setup_network() {
+  if ! have ip; then
+    err "iproute2 non installato: impossibile creare il bridge ${BRIDGE_NAME}"
+    exit 1
+  fi
+
+  if ! ip link show "${BRIDGE_NAME}" >/dev/null 2>&1; then
+    ip link add name "${BRIDGE_NAME}" type bridge
+    ip link set "${BRIDGE_NAME}" up
+    log "bridge ${BRIDGE_NAME} creato"
+  fi
+
+  if ! ip -4 addr show dev "${BRIDGE_NAME}" 2>/dev/null | grep -q "${BRIDGE_ADDR%%/*}"; then
+    ip addr add "${BRIDGE_ADDR}" dev "${BRIDGE_NAME}" 2>/dev/null || true
+    log "indirizzo ${BRIDGE_ADDR} assegnato a ${BRIDGE_NAME}"
+  fi
+
+  # Forwarding IPv4: su ChromeOS e' gestito da shill, ma per il NAT del
+  # container serve abilitarlo esplicitamente sul bridge.
+  if [[ -w /proc/sys/net/ipv4/ip_forward ]]; then
+    local cur
+    cur="$(cat /proc/sys/net/ipv4/ip_forward)"
+    if [[ "${cur}" != "1" ]]; then
+      echo 1 > /proc/sys/net/ipv4/ip_forward
+      log "ip_forward abilitato (era ${cur})"
+    fi
+  fi
+
+  if have iptables; then
+    if ! iptables -t nat -C POSTROUTING -s "${BRIDGE_NET}" -o '*' -j MASQUERADE 2>/dev/null; then
+      iptables -t nat -A POSTROUTING -s "${BRIDGE_NET}" -j MASQUERADE 2>/dev/null || \
+        log "AVVISO: regola NAT non installata (iptables limitato in ChromeOS)"
+    fi
+    if ! iptables -C FORWARD -i "${BRIDGE_NAME}" -j ACCEPT 2>/dev/null; then
+      iptables -A FORWARD -i "${BRIDGE_NAME}" -j ACCEPT 2>/dev/null || true
+      iptables -A FORWARD -o "${BRIDGE_NAME}" -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null || true
+    fi
+    log "regole NAT/forwarding per ${BRIDGE_NET} verificate"
+  else
+    log "iptables assente: il container usera' il DNS/proxy ospite"
+  fi
+}
+
+# --- 4. layout del container -----------------------------------------------------
+setup_dirs() {
+  local d
+  for d in "${IMAGES_DIR}" "${LXC_DIR}" "${WAYDROID_ROOT}/overlay" \
+           "${WAYDROID_ROOT}/rootfs" "${WAYDROID_ROOT}/data" \
+           "${WAYDROID_ROOT}/cache" /var/log/prismos "${RUN_DIR}"; do
+    mkdir -p "${d}"
+  done
+  chmod 0755 "${RUN_DIR}"
+
+  if [[ ! -s "${IMAGES_DIR}/system.img" ]]; then
+    err "system.img assente in ${IMAGES_DIR}"
+    err "  eseguire scripts/provision_waydroid_image.sh --edition <edu|home|work|slim>"
+    err "  (immagine LineageOS 16.0 x86 ricostruita con floor ISA SSE4.1)"
+    exit 1
+  fi
+  if [[ ! -s "${IMAGES_DIR}/vendor.img" ]]; then
+    err "vendor.img assente in ${IMAGES_DIR}"
+    exit 1
+  fi
+
+  # Verifica ISA sulle immagini: un'immagine Android ufficiale Waydroid contiene
+  # binari con SSE4.2. Qui si controlla il marker scritto dal provisioning.
+  if [[ -s "${IMAGES_DIR}/ISA_FLOOR" ]]; then
+    local floor
+    floor="$(cat "${IMAGES_DIR}/ISA_FLOOR")"
+    if [[ "${floor}" != *"sse4.1"* ]]; then
+      err "le immagini in ${IMAGES_DIR} dichiarano ISA '${floor}'"
+      err "  prismOS Legacy richiede un floor <= sse4.1"
+      exit 1
+    fi
+    log "floor ISA delle immagini verificato: ${floor}"
+  elif [[ "${PRISMOS_ALLOW_UNVERIFIED_IMAGES:-0}" == "1" ]]; then
+    log "AVVISO: marcatore ISA_FLOOR assente, avvio consentito da PRISMOS_ALLOW_UNVERIFIED_IMAGES=1"
+  else
+    # Un'immagine senza marcatore e' di norma un'immagine ufficiale Waydroid
+    # (x86_64, SSE4.2): su Arrandale/Pentium porterebbe a SIGILL e a un ciclo di
+    # riavvio del container. Si rifiuta l'avvio invece di tentarlo.
+    err "marcatore ISA_FLOOR assente in ${IMAGES_DIR}: immagini non verificate"
+    err "  eseguire scripts/provision_waydroid_image.sh --edition <edu|home|work|slim>"
+    err "  (in casi eccezionali: PRISMOS_ALLOW_UNVERIFIED_IMAGES=1 ${PROG})"
+    exit 1
+  fi
+
+  # Config LXC del container: generato se manca, altrimenti lasciato intatto.
+  if [[ ! -f "${LXC_DIR}/waydroid/config" ]]; then
+    mkdir -p "${LXC_DIR}/waydroid"
+    cat > "${LXC_DIR}/waydroid/config" <<LXC
+# Generato da ${PROG} - container Waydroid per prismOS Legacy
+lxc.uts.name = waydroid
+lxc.rootfs.path = dir:${WAYDROID_ROOT}/rootfs
+lxc.init.cmd = /init
+lxc.init.uid = 0
+lxc.init.gid = 0
+
+# Namespace: si clonano SOLO ipc/uts/net/mount. Il PID namespace NON e'
+# clonato, quindi i processi Android restano visibili dall'ospite: e' cio' che
+# permette al watchdog di /usr/bin/prismos-slim-launcher di vedere l'app e di
+# terminarla (kill) non appena l'utente la chiude.
+lxc.namespace.clone = ipc uts net mount
+
+# cgroup v2 (ChromeOS usa il gerarchia unificata): serve la delega.
+lxc.cgroup2.devices.allow = c *:* m
+lxc.cgroup2.memory.high = 768M
+lxc.cgroup2.memory.max = 1024M
+lxc.cgroup2.cpuset.cpus = 0-1
+
+lxc.mount.auto = proc:rw sys:mixed cgroup:mixed
+lxc.mount.entry = ${BINDERFS_MOUNT} dev/binderfs none bind,optional,create=dir 0 0
+lxc.mount.entry = /dev/dri dev/dri none bind,optional,create=dir 0 0
+lxc.mount.entry = /dev/snd dev/snd none bind,optional,create=dir 0 0
+lxc.mount.entry = tmpfs dev/shm tmpfs nosuid,nodev,create=dir 0 0
+lxc.mount.entry = tmpfs tmp tmpfs nosuid,nodev,create=dir 0 0
+lxc.mount.entry = tmpfs run tmpfs nosuid,nodev,create=dir 0 0
+
+lxc.net.0.type = veth
+lxc.net.0.link = ${BRIDGE_NAME}
+lxc.net.0.flags = up
+lxc.net.0.hwaddr = 00:16:3e:0a:d0:54
+lxc.net.0.name = eth0
+
+lxc.cap.drop = mac_admin mac_override sys_time sys_module sys_rawio sys_pacct
+lxc.cap.keep = sys_admin net_admin net_raw setuid setgid chown dac_override fowner kill audit_write
+lxc.apparmor.profile = unconfined
+lxc.seccomp.profile = ${WAYDROID_ROOT}/seccomp.conf
+LXC
+    # Profilo seccomp permissivo: Android 9 usa syscall (personality, keyctl,
+    # bpf) che il profilo docker di default blocca.
+    cat > "${WAYDROID_ROOT}/seccomp.conf" <<'SECCOMP'
+[allow]
+syscall
+SECCOMP
+    log "config LXC generato in ${LXC_DIR}/waydroid/config"
+  fi
+}
+
+# --- 5. ambiente Wayland della sessione Ash --------------------------------------
+write_session_env() {
+  local uid socket runtime home
+  mkdir -p "${RUN_DIR}"
+
+  # Utente grafico attivo: su ChromeOS la sessione e' di chronos (uid 1000).
+  uid="$(loginctl list-users --no-legend 2>/dev/null | awk '$2=="chronos"{print $1; exit}')"
+  [[ -n "${uid}" ]] || uid=1000
+  runtime="/run/user/${uid}"
+
+  # Socket Wayland reale: Exo (ChromeOS) espone "wayland-exo"; le sessioni
+  # Weston nested espongono "wayland-0"/"wayland-1".
+  socket=""
+  local cand
+  for cand in wayland-exo wayland-0 wayland-1 wayland-2; do
+    if [[ -S "${runtime}/${cand}" ]]; then
+      socket="${cand}"
+      break
+    fi
+  done
+  if [[ -z "${socket}" ]]; then
+    socket="$(find "${runtime}" -maxdepth 1 -name 'wayland-*' -type s -printf '%f\n' 2>/dev/null | head -n1 || true)"
+  fi
+  if [[ -z "${socket}" ]]; then
+    err "nessun socket Wayland in ${runtime}: sessione Ash non attiva?"
+    err "  Waydroid richiede un compositore Wayland (Exo su ChromeOS)"
+    exit 1
+  fi
+
+  home="$(getent passwd "${uid}" 2>/dev/null | cut -d: -f6)"
+  [[ -n "${home}" ]] || home="/home/chronos"
+
+  local dbus="unix:path=${runtime}/bus"
+  [[ -S "${runtime}/bus" ]] || dbus=""
+
+  cat > "${RUN_DIR}/waydroid-${uid}.env" <<ENV
+# Generato da ${PROG} il $(date -Is)
+XDG_RUNTIME_DIR=${runtime}
+WAYLAND_DISPLAY=${socket}
+HOME=${home}
+USER=chronos
+PRISMOS_WAYDROID_UID=${uid}
+ENV
+  [[ -n "${dbus}" ]] && printf 'DBUS_SESSION_BUS_ADDRESS=%s\n' "${dbus}" >> "${RUN_DIR}/waydroid-${uid}.env"
+
+  chmod 0644 "${RUN_DIR}/waydroid-${uid}.env"
+  log "ambiente sessione scritto: ${RUN_DIR}/waydroid-${uid}.env (socket=${socket})"
+}
+
+# --- verifica ISA dell'ospite ------------------------------------------------------
+verify_host_isa() {
+  if ! grep -m1 '^flags' /proc/cpuinfo 2>/dev/null | grep -q 'sse4_1'; then
+    err "CPU senza SSE4.1: il container Android non puo' essere avviato"
+    exit 1
+  fi
+  if grep -m1 '^flags' /proc/cpuinfo 2>/dev/null | grep -q 'sse4_2'; then
+    log "AVVISO: la CPU ospite ha SSE4.2 ma le immagini sono a floor SSE4.1"
+    log "        (scelta deliberata di prismOS Legacy per portabilita')"
+  fi
+}
+
+main() {
+  need_root
+  log "preparazione ambiente Waydroid (kernel $(uname -r))"
+  verify_host_isa
+  setup_binder
+  setup_network
+  setup_dirs
+  write_session_env
+  log "ambiente pronto"
+}
+
+main "$@"

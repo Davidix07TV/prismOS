@@ -1,0 +1,190 @@
+# =============================================================================
+#  prismOS :: overlay-prismos-common :: profiles/base/make.defaults
+# -----------------------------------------------------------------------------
+#  USE flags globali del profilo Portage di TUTTE le edizioni prismOS.
+#
+#  Un profilo make.defaults APPENDE al valore ereditato dai profili genitore
+#  (portage-stable -> chromiumos -> prismos-common). La negazione esplicita
+#  (-flag) ha effetto sull'insieme finale: un `-arc` scritto qui vince su un
+#  `arc` ereditato dal profilo chromiumos upstream.
+#
+#  Riferimento ISA: x86_64 con SSE4.1 come ceiling (Intel Pentium P6100,
+#  Arrandale). Vedere overlay-prismos-common/make.conf sezione 2.
+# =============================================================================
+
+ARCH="amd64"
+ACCEPT_KEYWORDS="amd64 ~amd64"
+LIBDIR_amd64="lib64"
+LIBDIR_x86="lib"
+SYMLINK_LIB="yes"
+PROFILE_ONLY_VARIABLES="ARCH ACCEPT_KEYWORDS LIBDIR_amd64 LIBDIR_x86 SYMLINK_LIB"
+
+# -----------------------------------------------------------------------------
+# 1. SOTTOSISTEMI PROPRIETARI ANDROID - RIMOZIONE TOTALE
+# -----------------------------------------------------------------------------
+# ARC (Android Runtime for Chrome), ARC++ (container LXC su ChromeOS <= M89) e
+# ARCVM (VM crosvm su ChromeOS >= M90) eseguono un'immagine Android compilata
+# da Google con `-msse4.2 -mpopcnt`. Su CPU senza SSE4.2:
+#
+#   * /system/bin/surfaceflinger termina con SIGILL al primo `crc32`
+#   * "android-sh" riavvia il container in loop (bootanimation infinito)
+#   * il watchdog di session_manager riavvia arc-setup ogni 30 s saturando la
+#     CPU e rendendo inutilizzabile la macchina (fenomeno osservato su P6100)
+#
+# La disattivazione avviene su TRE livelli indipendenti (defense in depth):
+#   livello 1 -> USE negativi qui sotto (nessun pacchetto viene compilato)
+#   livello 2 -> profiles/base/use.mask        (il flag non e' nemmeno
+#                                               abilitabile da riga di comando)
+#   livello 3 -> policy ArcEnabled=false + UnaffiliatedDeviceArcAllowed=false
+#                (anche se un binario ARC sopravvivesse, Ash non lo avvierebbe)
+USE="${USE} -arc -arc-plus -arcplusplus -arc-container -arcvm -arc-kernel-features -houdini -libhoudini"
+
+# -----------------------------------------------------------------------------
+# 2. SOTTOSISTEMA ANDROID SOSTITUTIVO - WAYDROID (LineageOS 16.0 / Android 9)
+# -----------------------------------------------------------------------------
+# waydroid        : app-emulation/waydroid + prismos-waydroid-config
+#                   (container LXC, binderfs, ashmem, immagini LineageOS)
+# lxc             : backend container di Waydroid (no systemd-nspawn, che su
+#                   ChromeOS non ha cgroup v1 completo)
+# android-images  : pull di system.img/vendor.img LineageOS 16.0 x86 rebuild
+# binderfs        : abilita il montaggio di /dev/binderfs in fstab di sessione
+# ashmem          : modulo ashmem_linux (fallback per kernel < 5.18)
+# wayland-nested  : host Wayland per Waydroid dentro la sessione Ash
+#                   (weston --backend=wayland, XDG_SESSION_TYPE=wayland)
+USE="${USE} waydroid lxc android-images binderfs ashmem wayland-nested"
+
+# -----------------------------------------------------------------------------
+# 3. SOTTOSISTEMA WINDOWS - WINE + PROTON/BOTTLES
+# -----------------------------------------------------------------------------
+# wine            : app-emulation/wine-staging (branch staging, piu' compatto
+#                   e meglio manutenuto per i PE legacy rispetto a wine-vanilla)
+# proton          : patch set Proton (fsync, esync, wine-wayland driver,
+#                   proton-specific fixup per installer MSI)
+# bottles         : frontend Bottles per la gestione dei prefix
+# wow64           : supporto binari Win32 dentro prefix 64 bit (richiede
+#                   ABI_X86="64 32" -> MULTILIB_ABIS in make.conf)
+# run-exe         : handler MIME per .exe/.msi invocato dal file manager
+# win32codecs     : DMO/codec Windows (wmv, dmo) per i player datati
+# d3d9 d3d11      : translator wined3d (NON dxvk: su Gen5 manca Vulkan)
+# fsync esync     : sincronizzazione a basso overhead, cruciale su 2 core
+# -dxvk -vkd3d-proton nel runtime: installati ma disattivati di default,
+#   vedere app-emulation/prismos-wine-config/files/prismos-wine-env.sh
+USE="${USE} wine proton bottles wow64 mingw run-exes win32codecs d3d9 d3d11 fsync esync \
+cups fontconfig gstreamer lcms ldap ncurses netapi odbc openal opengl perl png \
+pulseaudio sdl truetype udev udisks unwind usb v4l wayland xcomposite xml +ssl threads"
+
+# -----------------------------------------------------------------------------
+# 4. ACCELERAZIONE VIDEO E CODEC PROPRIETARI
+# -----------------------------------------------------------------------------
+# vaapi            : media-libs/libva + i965 backend (Gen5: MPEG2/VC1 only,
+#                    H.264 in software - documentato in make.conf sez. 4)
+# branded-chromium : www-client/chromium con branding "prismOS Chromium",
+#                    abilita Widevine CDM e i codec non liberi
+# widevine         : libwidevinecdm.so (DRM L3) per Netflix/Disney+/Prime
+# h264 aac mp3     : parser e decoder MPEG-4 AVC, AAC-LC/HE, MPEG-1 Layer III
+# proprietary-codecs : interruttore Chromium per ffmpeg_branding="Chrome"
+# gpl opus vpx dav1d : decoder liberi, tutti con path SIMD SSE2/SSE4.1
+USE="${USE} vaapi branded-chromium widevine h264 aac mp3 proprietary-codecs ffmpeg opus vpx dav1d theora vorbis flac wavpack a52 dts mpeg mp4 matroska dvd alsa oss jack pipewire"
+
+# -----------------------------------------------------------------------------
+# 5. SESSIONE / SHELL GRAFICA (Ash-Aura + Dock macOS-like)
+# -----------------------------------------------------------------------------
+# ash-dock         : app-misc/prismos-dock (shelf bassa, centrata, autohide,
+#                    maschera iconografica squircle, seeder dei pref Ash)
+# spotlight-launcher : app-misc/prismos-accelerator-daemon (scorciatoia
+#                    globale Super+Space -> Launcher centralizzato Ash)
+# slim-ondemand    : ATTIVATO SOLO da overlay-prismos-slim. Abilita il package
+#                    app-misc/prismos-slim-launcher e le drop-in systemd che
+#                    tengono Waydroid/Wine spenti fino all'apertura di un file
+#                    .apk/.exe (vedere punto 6).
+USE="${USE} ash ash-dock spotlight-launcher aura exo wayland ozone -ozone-x11 -X -gnome -kde -plasma -qt5 -qt6 -gtk2"
+
+# -----------------------------------------------------------------------------
+# 6. HELPER SLIM :: /usr/bin/prismos-slim-launcher
+# -----------------------------------------------------------------------------
+# L'edizione prismOS Slim (<2 GB di RAM) deve includere il supporto COMPLETO a
+# Waydroid e Wine ma mantenerlo a zero footprint fino all'uso. Il meccanismo:
+#
+#   .apk / .exe aperti dal file manager
+#        |
+#        v
+#   /usr/bin/prismos-slim-launcher <file>     (MIME handler + CLI)
+#        |
+#        +-- systemctl start prismos-waydroid-container.service   (on-demand)
+#        |   systemctl start prismos-waydroid-session@<uid>.service
+#        +-- esegue: waydroid app launch <package> | wine <exe>
+#        +-- attende la chiusura (PID watch + inotify su /proc/<pid>)
+#        +-- systemctl stop --no-block <unita'>   (kill immediato, RAM libera)
+#
+# Il flag `slim-ondemand` NON e' attivo qui (profilo comune): viene aggiunto da
+# overlay-prismos-slim/profiles/base/make.defaults, cosi' EDU/Home/Work hanno i
+# demoni del container permanentemente attivi all'avvio mentre Slim li tiene
+# spenti e li risveglia solo su richiesta esplicita dell'utente.
+#   sorgente : overlay-prismos-common/app-misc/prismos-slim-launcher/files/prismos-slim-launcher
+#   ebuild   : overlay-prismos-common/app-misc/prismos-slim-launcher/prismos-slim-launcher-1.0.0.ebuild
+#   install  : /usr/bin/prismos-slim-launcher  (0755, root:root)
+#   config   : /etc/prismos/slim-launcher.conf
+# -----------------------------------------------------------------------------
+USE="${USE} -slim-ondemand"
+
+# -----------------------------------------------------------------------------
+# 7. SISTEMA BASE / ESCLUSIONI (riduzione footprint per hardware legacy)
+# -----------------------------------------------------------------------------
+# ChromeOS non usa ne' NetworkManager ne' connman: la rete e' gestita da
+# net-misc/shill (che include nativamente i backend OpenVPN, L2TP/IPsec e
+# WireGuard richiesti dall'edizione Work). Gli stack desktop alternativi sono
+# esclusi perche' la sessione e' esclusivamente Ash/Aura via ozone-wayland.
+# bluetooth/ipv6 restano ATTIVI: i portatili legacy Arrandale hanno quasi
+# sempre un modulo BT 2.1+EDR e la rete scolastica/aziendale e' dual-stack.
+USE="${USE} zlib lzma zstd bzip2 unicode nls threads bluetooth ipv6 \
+-networkmanager -modemmanager -zeroconf -avahi -connman \
+seccomp minijail tpm2 -smartcard -pcsc-lite -kerberos -samba -nfs \
+crostini virtio kvm -qemu -virtd \
+zram zswap earlyoom -debug -doc -examples -test -gtk-doc \
+-openrc -selinux -apparmor -systemd-boot"
+
+# -----------------------------------------------------------------------------
+# 8. USE_EXPAND E VARIABILI DI PROFILO
+# -----------------------------------------------------------------------------
+USE_EXPAND="${USE_EXPAND} PRISMOS_EDITION PRISMOS_SUBSYSTEM"
+USE_EXPAND_HIDDEN="${USE_EXPAND_HIDDEN} PRISMOS_EDITION"
+
+# Valori ammessi per USE_EXPAND=PRISMOS_EDITION (uno solo per immagine):
+#   prismos_edition_edu  prismos_edition_home
+#   prismos_edition_work prismos_edition_slim
+# Valori ammessi per USE_EXPAND=PRISMOS_SUBSYSTEM:
+#   prismos_subsystem_waydroid  prismos_subsystem_wine
+#   prismos_subsystem_crostini  prismos_subsystem_arc (MASCHERATO, mai usare)
+PRISMOS_EDITION="prismos_edition_home"
+PRISMOS_SUBSYSTEM="prismos_subsystem_waydroid prismos_subsystem_wine prismos_subsystem_crostini"
+PROFILE_ONLY_VARIABLES="${PROFILE_ONLY_VARIABLES} USE_EXPAND USE_EXPAND_HIDDEN PRISMOS_EDITION PRISMOS_SUBSYSTEM"
+
+# CPU_FLAGS_X86 autoritativo per l'intera distribuzione: e' la lista esatta
+# delle feature esposte da CPUID.01H su Intel Pentium P6100 (Arrandale).
+# sse4_2 / popcnt / aes / pclmul / avx sono ASSENTI e non vanno mai aggiunti:
+# molti ebuild (ffmpeg, x264, dav1d, zstd) attivano path SIMD proprio su
+# CPU_FLAGS_X86, indipendentemente da CFLAGS.
+CPU_FLAGS_X86="mmx sse sse2 sse3 ssse3 sse4_1"
+PROFILE_ONLY_VARIABLES="${PROFILE_ONLY_VARIABLES} CPU_FLAGS_X86"
+
+VIDEO_CARDS="intel crocus i965"
+INPUT_DEVICES="libinput evdev synaptics wacom"
+PROFILE_ONLY_VARIABLES="${PROFILE_ONLY_VARIABLES} VIDEO_CARDS INPUT_DEVICES"
+
+# -----------------------------------------------------------------------------
+# 9. SET DI PACCHETTI OBBLIGATORI NEL SYSTEM SET
+# -----------------------------------------------------------------------------
+# Elenco completo in profiles/base/packages. Qui si dichiara il world seed
+# minimo per build_packages --board=amd64-prismos.
+SYSTEM_PACKAGES="${SYSTEM_PACKAGES} \
+app-misc/prismos-dock \
+app-misc/prismos-accelerator-daemon \
+app-misc/prismos-slim-launcher \
+app-misc/prismos-runtime-config \
+app-emulation/prismos-waydroid-config \
+app-emulation/prismos-wine-config \
+app-emulation/waydroid \
+app-emulation/wine-staging \
+app-emulation/winetricks \
+media-libs/libva \
+x11-libs/libva-intel-driver"

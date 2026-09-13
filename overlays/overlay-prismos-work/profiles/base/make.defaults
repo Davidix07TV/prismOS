@@ -1,0 +1,31 @@
+# =============================================================================
+#  prismOS Work :: profiles/base/make.defaults
+# -----------------------------------------------------------------------------
+#  USE di profilo dell'edizione Work: produttivita' aziendale, Microsoft 365,
+#  VPN avanzata, cartella Download crittografata.
+# =============================================================================
+
+PRISMOS_EDITION="prismos_edition_work"
+PRISMOS_EDITION_ID="work"
+PROFILE_ONLY_VARIABLES="PRISMOS_EDITION PRISMOS_EDITION_ID"
+
+# m365-suite     : pin di Microsoft 365, Outlook, Teams, OneDrive sulla Shelf
+# vpn-advanced   : shill con OpenVPN (tls-crypt, PKCS#11), L2TP/IPsec, IKEv2
+# encrypted-dl   : ~/Downloads come volume dm-crypt/LUKS su file loopback
+# kerberos       : ticket AD per SSO su share e applicativi enterprise
+# tpm2-seal      : sigillo della chiave LUKS nel TPM quando presente
+# audit-logging  : journal persistente con rotazione a 90 giorni
+USE="${USE} prismos_edition_work m365-suite vpn-advanced encrypted-dl kerberos \
+tpm2-seal audit-logging waydroid wine proton bottles crostini virtio-gpu \
+-device-restrict -kiosk-exam -school-lab -cloud-gaming"
+
+USE="${USE} -arc -arc-plus -arcplusplus -arcvm"
+
+PRISMOS_SUBSYSTEM="prismos_subsystem_waydroid prismos_subsystem_wine prismos_subsystem_crostini"
+
+SYSTEM_PACKAGES="${SYSTEM_PACKAGES} \
+sys-fs/cryptsetup \
+net-vpn/openvpn \
+net-vpn/strongswan \
+app-crypt/tpm2-tools \
+app-crypt/gnupg"

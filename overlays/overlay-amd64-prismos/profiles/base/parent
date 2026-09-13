@@ -1,0 +1,14 @@
+# =============================================================================
+#  Board amd64-prismos :: profilo base :: parent
+# -----------------------------------------------------------------------------
+#  Righe 1-2 statiche: profilo ChromeOS amd64 + overlay comune prismOS.
+#  La riga 3 (l'edizione) viene APPESA da scripts/build_iso.sh nella copia di
+#  lavoro sincronizzata dentro cros_sdk:
+#
+#      echo "prismos-edu:base" >> $CROS_SDK/src/overlays/overlay-amd64-prismos/profiles/base/parent
+#
+#  Non editare questo file a mano: e' il template sorgente, la copia attiva
+#  vive in $CROS_SDK/src/overlays/overlay-amd64-prismos/.
+# =============================================================================
+chromiumos:default/linux/amd64/10.0/chromeos
+prismos-common:base

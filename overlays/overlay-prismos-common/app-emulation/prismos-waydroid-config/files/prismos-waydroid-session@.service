@@ -1,0 +1,59 @@
+# =============================================================================
+#  prismos-waydroid-session@<uid>.service
+# -----------------------------------------------------------------------------
+#  Sessione Waydroid dell'utente grafico: collega il container al compositore
+#  Wayland della sessione Ash (socket Exo "wayland-exo") e rende visibili le
+#  app Android come finestre native.
+#
+#  Istanza tipica: prismos-waydroid-session@1000.service (chronos).
+#  Avviata da /usr/bin/prismos-slim-launcher (Slim) oppure da
+#  prismos-subsystems.target (EDU/Home/Work).
+# =============================================================================
+[Unit]
+Description=prismOS Waydroid session for UID %i
+Documentation=https://github.com/Davidix07TV/prismOS/blob/main/docs/waydroid-integration.md
+Requires=prismos-waydroid-container.service
+After=prismos-waydroid-container.service
+BindsTo=prismos-waydroid-container.service
+StopWhenUnneeded=yes
+ConditionPathExists=/run/prismos/waydroid-%i.env
+
+[Service]
+Type=simple
+User=%i
+Group=%i
+Environment=XDG_RUNTIME_DIR=/run/user/%i
+Environment=WAYLAND_DISPLAY=wayland-exo
+Environment=HOME=/home/chronos
+Environment=PRISMOS_WAYDROID_UID=%i
+# Il file e' scritto da prismos-waydroid-prepare e contiene il socket Wayland
+# realmente presente (wayland-exo su ChromeOS/Exo, wayland-0 su Weston nested).
+EnvironmentFile=-/run/prismos/waydroid-%i.env
+Environment=LD_PRELOAD=
+
+ExecStartPre=/bin/sh -c 'test -S "${XDG_RUNTIME_DIR}/${WAYLAND_DISPLAY}"'
+ExecStart=/usr/bin/waydroid session start
+ExecStop=/usr/bin/waydroid session stop
+
+Restart=on-failure
+RestartSec=5
+StartLimitIntervalSec=120
+StartLimitBurst=3
+TimeoutStartSec=90
+TimeoutStopSec=10
+KillMode=mixed
+FinalKillSignal=SIGKILL
+OOMPolicy=stop
+
+Slice=prismos-subsystems.slice
+MemoryHigh=256M
+MemoryMax=384M
+CPUWeight=100
+TasksMax=256
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=prismos-waydroid-session
+
+[Install]
+WantedBy=prismos-subsystems.target

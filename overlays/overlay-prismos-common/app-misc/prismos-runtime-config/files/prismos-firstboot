@@ -1,0 +1,202 @@
+#!/usr/bin/env bash
+# =============================================================================
+#  /usr/libexec/prismos/prismos-firstboot
+# -----------------------------------------------------------------------------
+#  Provisioning del primo avvio. Legge /etc/prismos/edition.conf (generato da
+#  scripts/build_iso.sh al momento della creazione dell'immagine) e:
+#
+#    1. applica lo stato di avvio dei sottosistemi (enabled / on-demand /
+#       disabled / masked) per l'edizione compilata
+#    2. configura la Shelf/Dock macOS-like invocando prismos-dock-apply
+#    3. installa la policy Chromium dell'edizione, se presente
+#    4. registra l'avvenuta esecuzione in /var/lib/prismos/state/firstboot.done
+#
+#  E' idempotente: la ConditionPathExists=!.../firstboot.done della unita' ne
+#  impedisce la riesecuzione, ma una ri-esecuzione manuale non fa danni.
+# =============================================================================
+
+set -Eeuo pipefail
+shopt -s inherit_errexit
+
+readonly PROG="prismos-firstboot"
+readonly EDITION_CONF="/etc/prismos/edition.conf"
+readonly STATE_DIR="/var/lib/prismos/state"
+readonly DONE_STAMP="${STATE_DIR}/firstboot.done"
+
+log() { logger -t prismos-firstboot -p user.info -- "${PROG}: $*" 2>/dev/null || true; printf '%s: %s\n' "${PROG}" "$*" >&2; }
+warn() { logger -t prismos-firstboot -p user.warning -- "${PROG}: $*" 2>/dev/null || true; printf '%s: AVVISO %s\n' "${PROG}" "$*" >&2; }
+have() { command -v "$1" >/dev/null 2>&1; }
+
+EDITION_ID="unknown"
+WAYDROID_BOOT_STATE="on-demand"
+WINE_BOOT_STATE="on-demand"
+SUBSYSTEM_IDLE_TIMEOUT="300"
+SUBSYSTEM_MAX_INSTANCES="1"
+SHELF_ALIGNMENT="Bottom"
+SHELF_AUTOHIDE="Always"
+SHELF_ICON_SIZE="48"
+SHELF_SQUIRCLE_RADIUS="0.28"
+SHELF_PIN_MAX="8"
+ENCRYPTED_DOWNLOADS="0"
+POLICY_FILE=""
+
+load_edition_conf() {
+  if [[ ! -f "${EDITION_CONF}" ]]; then
+    warn "${EDITION_CONF} assente: applico i default (edizione Slim)"
+    return 0
+  fi
+  # shellcheck disable=SC1090
+  source "${EDITION_CONF}"
+  log "edizione rilevata: ${EDITION_ID} (waydroid=${WAYDROID_BOOT_STATE} wine=${WINE_BOOT_STATE})"
+}
+
+# Applica uno stato di avvio a un set di unita'.
+#   enabled   -> systemctl enable (parte al boot via prismos-subsystems.target)
+#   on-demand -> systemctl disable (avviabile solo esplicitamente)
+#   disabled  -> systemctl disable
+#   masked    -> systemctl mask (symlink a /dev/null)
+apply_boot_state() {
+  local state="$1"; shift
+  local unit rc
+
+  for unit in "$@"; do
+    rc=0
+    case "${state}" in
+      enabled)
+        systemctl unmask "${unit}" >/dev/null 2>&1 || true
+        systemctl enable "${unit}" >/dev/null 2>&1 || rc=$?
+        if (( rc == 0 )); then
+          log "  [enabled]   ${unit}"
+        else
+          warn "  enable fallito per ${unit} (rc=${rc})"
+        fi
+        ;;
+      on-demand)
+        systemctl unmask "${unit}" >/dev/null 2>&1 || true
+        systemctl disable "${unit}" >/dev/null 2>&1 || true
+        log "  [on-demand] ${unit} (spenta al boot, avviata da prismos-slim-launcher)"
+        ;;
+      disabled)
+        systemctl unmask "${unit}" >/dev/null 2>&1 || true
+        systemctl disable "${unit}" >/dev/null 2>&1 || true
+        log "  [disabled]  ${unit}"
+        ;;
+      masked)
+        systemctl mask "${unit}" >/dev/null 2>&1 || true
+        systemctl disable "${unit}" >/dev/null 2>&1 || true
+        log "  [masked]    ${unit}"
+        ;;
+      *)
+        warn "stato di avvio sconosciuto per ${unit}: ${state}"
+        ;;
+    esac
+  done
+}
+
+configure_subsystems() {
+  log "configurazione dello stato dei sottosistemi..."
+
+  # Target aggregatore: in Slim non deve essere trascinato da multi-user.target.
+  if [[ "${WAYDROID_BOOT_STATE}" == "on-demand" && "${WINE_BOOT_STATE}" == "on-demand" ]]; then
+    systemctl disable prismos-subsystems.target >/dev/null 2>&1 || true
+    systemctl mask prismos-subsystem-idle.timer >/dev/null 2>&1 || true
+    log "  [disabled]  prismos-subsystems.target (edizione on-demand)"
+  else
+    systemctl enable prismos-subsystems.target >/dev/null 2>&1 || true
+    systemctl unmask prismos-subsystem-idle.timer >/dev/null 2>&1 || true
+    systemctl enable prismos-subsystem-idle.timer >/dev/null 2>&1 || true
+    log "  [enabled]   prismos-subsystems.target"
+  fi
+
+  apply_boot_state "${WAYDROID_BOOT_STATE}" \
+    prismos-waydroid-container.service
+  # La sessione e' sempre on-demand: dipende dal container e dal socket Wayland.
+  apply_boot_state "on-demand" 'prismos-waydroid-session@1000.service'
+
+  apply_boot_state "${WINE_BOOT_STATE}" \
+    'prismos-wine-session@1000.service'
+
+  # Servizi di interfaccia: sempre attivi (consumano <2 MB di RSS).
+  apply_boot_state "enabled" \
+    prismos-dock-apply.service \
+    prismos-accelerator-daemon.service \
+    prismos-firstboot.service
+}
+
+configure_dock() {
+  if [[ -x /usr/libexec/prismos/prismos-dock-apply ]]; then
+    log "applicazione della Dock/Shelf macOS-like..."
+    /usr/libexec/prismos/prismos-dock-apply \
+      --alignment "${SHELF_ALIGNMENT}" \
+      --autohide "${SHELF_AUTOHIDE}" \
+      --icon-size "${SHELF_ICON_SIZE}" \
+      --squircle "${SHELF_SQUIRCLE_RADIUS}" \
+      --pin-max "${SHELF_PIN_MAX}" || warn "prismos-dock-apply ha segnalato errori"
+  else
+    warn "prismos-dock-apply non installato (app-misc/prismos-dock mancante)"
+  fi
+}
+
+install_policy() {
+  [[ -n "${POLICY_FILE}" ]] || return 0
+  if [[ ! -f "${POLICY_FILE}" ]]; then
+    warn "policy dichiarata ma assente: ${POLICY_FILE}"
+    return 0
+  fi
+  local target="/etc/chromium/policies/managed/prismos_policy.json"
+  mkdir -p "$(dirname "${target}")"
+  if cp -f "${POLICY_FILE}" "${target}"; then
+    chmod 0644 "${target}"
+    if have python3 && ! python3 -c "import json,sys; json.load(open(sys.argv[1]))" "${target}" 2>/dev/null; then
+      warn "la policy installata non e' JSON valido: ${target}"
+      return 1
+    fi
+    log "policy Chromium installata: ${target}"
+  else
+    warn "impossibile installare la policy ${POLICY_FILE}"
+  fi
+}
+
+configure_encrypted_downloads() {
+  if [[ "${ENCRYPTED_DOWNLOADS}" == "1" ]]; then
+    if [[ -x /usr/libexec/prismos/prismos-encrypted-dl-setup ]]; then
+      log "preparazione della cartella Download crittografata..."
+      /usr/libexec/prismos/prismos-encrypted-dl-setup || \
+        warn "setup della cartella crittografata non completato (verra' riprovato al login)"
+    else
+      warn "ENCRYPTED_DOWNLOADS=1 ma prismos-encrypted-dl-setup non e' installato"
+    fi
+  fi
+}
+
+record_environment() {
+  mkdir -p "${STATE_DIR}"
+  {
+    echo "# Registrazione del primo avvio di prismOS"
+    echo "firstboot_at=$(date -Is)"
+    echo "edition=${EDITION_ID}"
+    echo "kernel=$(uname -r)"
+    echo "board=${PRISMOS_BOARD:-amd64-prismos}"
+    if [[ -r /proc/cpuinfo ]]; then
+      echo "cpu_model=$(awk -F: '/^model name/ { gsub(/^ +/,"",$2); print $2; exit }' /proc/cpuinfo)"
+      echo "cpu_isa=$(grep -m1 '^flags' /proc/cpuinfo | grep -oE 'sse4_1|sse4_2|popcnt|avx' | sort -u | paste -sd, -)"
+    fi
+    echo "ram_total_kb=$(awk '/^MemTotal:/ { print $2; exit }' /proc/meminfo)"
+  } > "${DONE_STAMP}"
+  chmod 0644 "${DONE_STAMP}"
+  log "stato registrato in ${DONE_STAMP}"
+}
+
+main() {
+  log "primo avvio di prismOS: provisioning dell'edizione"
+  load_edition_conf
+  configure_subsystems
+  configure_dock
+  install_policy
+  configure_encrypted_downloads
+  record_environment
+  systemctl daemon-reload >/dev/null 2>&1 || true
+  log "provisioning completato"
+}
+
+main "$@"

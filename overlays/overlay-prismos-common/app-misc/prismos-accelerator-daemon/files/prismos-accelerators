@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# =============================================================================
+#  /usr/bin/prismos-accelerators   (wrapper utente)
+# -----------------------------------------------------------------------------
+#    prismos-accelerators --list            elenca le scorciatoie configurate
+#    prismos-accelerators --list-devices    elenca le tastiere rilevate
+#    prismos-accelerators --no-grab         avvia il demone senza catturare le
+#                                           tastiere (modalita' observe, debug)
+#    prismos-accelerators                   avvia il demone in primo piano
+# =============================================================================
+set -euo pipefail
+
+CONFIG="${PRISMOS_ACCEL_CONFIG:-/usr/share/prismos/accelerators.json}"
+
+if [[ ! -r "${CONFIG}" ]]; then
+	echo "prismos-accelerators: configurazione non leggibile: ${CONFIG}" >&2
+	exit 2
+fi
+
+exec /usr/libexec/prismos/prismos-accelerator-daemon --config "${CONFIG}" "$@"

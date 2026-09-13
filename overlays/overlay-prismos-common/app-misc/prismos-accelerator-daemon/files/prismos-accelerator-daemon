@@ -1,0 +1,606 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+/usr/libexec/prismos/prismos-accelerator-daemon
+
+Scorciatoie globali per la sessione Ash/Aura di prismOS.
+
+PERCHE' UN DEMONE EVDEV
+-----------------------
+ChromeOS non espone un meccanismo di policy per rimappare gli acceleratori di
+Ash, e la sessione non accetta client X11/Wayland esterni che possano registrare
+shortcut globali (il compositore e' Exo, i client sono solo quelli di Chrome).
+L'unica via affidabile e indipendente dalle patch di Chromium e' intercettare gli
+eventi tastiera a livello kernel (/dev/input/eventN) e iniettare, tramite un
+device uinput, la combinazione che Ash gia' conosce:
+
+    Super + Space          -> KEY_SEARCH              (Launcher centralizzato)
+    Super + Shift + Space  -> KEY_SEARCH + KEY_SLASH    (ricerca web diretta)
+    Super + L              -> KEY_SEARCH + KEY_L        (blocco schermo)
+    Super + D              -> KEY_SEARCH + KEY_D        (mostra desktop)
+    Super + 1..9           -> KEY_SEARCH + KEY_1..9     (passa all'app pinnata N)
+
+KEY_SEARCH e' il tasto "Search/Launcher" dei Chromebook: premuto da solo apre il
+launcher in modalita' ricerca a tutto schermo, esattamente l'equivalente di
+Cmd+Space su macOS. Il demone quindi NON disegna alcuna UI: riusa il launcher
+nativo di Ash, che su prismOS e' configurato come pannello centrato.
+
+GESTIONE DEI MODIFICATORI (hold-back buffer)
+--------------------------------------------
+Per evitare che il tasto della scorciatoia "sfugga" nell'applicazione in focus
+(per esempio uno spazio digitato in un campo di testo) il demone cattura i
+device tastiera con EVIOCGRAB e NON inoltra subito i modificatori: li accumula e
+li inoltra solo quando arriva un tasto che non completa alcuna scorciatoia. Se
+il modificatore viene rilasciato senza che nessun altro tasto sia stato premuto
+(tap singolo) viene comunque inoltrato, cosi' il tasto Search continua a
+funzionare normalmente.
+
+SICUREZZA
+---------
+Un demone che cattura la tastiera e' un punto singolo di guasto: se morisse
+tenendo il grab, la tastiera risulterebbe muta. Le contromisure sono:
+  * rilascio del grab in un blocco finally e nei handler di SIGTERM/SIGINT
+  * systemd Restart=always + WatchdogSec=20 (sd_notify WATCHDOG=1 ogni 5 s)
+  * fallback automatico alla modalita' "observe" (nessun grab) se la cattura
+    fallisce o se PRISMOS_ACCEL_GRAB=0
+"""
+
+from __future__ import annotations
+
+import argparse
+import ctypes
+import errno
+import fcntl
+import json
+import os
+import selectors
+import signal
+import subprocess
+import sys
+import threading
+import time
+from typing import Dict, Iterable, List, Optional, Set, Tuple
+
+try:
+    from evdev import InputDevice, UInput, ecodes as e, list_devices
+except ImportError:  # pragma: no cover - percorso di errore operativo
+    sys.stderr.write(
+        "prismos-accelerator-daemon: modulo python 'evdev' non disponibile.\n"
+        "Installare dev-python/evdev (USE=spotlight-launcher).\n"
+    )
+    sys.exit(3)
+
+PROG = "prismos-accelerator-daemon"
+VERSION = "1.0.0"
+UINPUT_NAME = "prismOS Accelerator"
+CONFIG_DEFAULT = "/usr/share/prismos/accelerators.json"
+PIDFILE = "/run/prismos/accelerator.pid"
+
+# ioctl per la cattura esclusiva di un device di input.
+_EVIOCGRAB = 0x40044590
+
+MODIFIER_KEYS: Dict[int, str] = {
+    e.KEY_LEFTMETA: "super",
+    e.KEY_RIGHTMETA: "super",
+    e.KEY_LEFTSHIFT: "shift",
+    e.KEY_RIGHTSHIFT: "shift",
+    e.KEY_LEFTCTRL: "ctrl",
+    e.KEY_RIGHTCTRL: "ctrl",
+    e.KEY_LEFTALT: "alt",
+    e.KEY_RIGHTALT: "alt",
+}
+
+KEY_NAME_TO_CODE: Dict[str, int] = {
+    name[4:].lower(): code
+    for name, code in vars(e).items()
+    if isinstance(code, int) and name.startswith("KEY_")
+}
+
+
+def log(msg: str) -> None:
+    line = f"{PROG}: {msg}"
+    sys.stderr.write(line + "\n")
+    sys.stderr.flush()
+    if os.path.exists("/dev/log"):
+        try:
+            subprocess.run(["logger", "-t", "prismos-accel", "-p", "user.info", "--", line],
+                           check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except (OSError, FileNotFoundError):
+            pass
+
+
+def sd_notify(state: str) -> None:
+    """Notifica systemd (Type=notify / WatchdogSec)."""
+    sock = os.environ.get("NOTIFY_SOCKET")
+    if not sock:
+        return
+    try:
+        import socket as socket_mod
+        if sock.startswith("@"):
+            sock = "\0" + sock[1:]
+        with socket_mod.socket(socket_mod.AF_UNIX, socket_mod.SOCK_DGRAM) as s:
+            s.connect(sock)
+            s.sendall(state.encode())
+    except OSError:
+        pass
+
+
+# ---------------------------------------------------------------------------
+# Configurazione degli acceleratori
+# ---------------------------------------------------------------------------
+class Accelerator:
+    __slots__ = ("acc_id", "modifiers", "key", "action", "payload", "description")
+
+    def __init__(self, acc_id: str, trigger: str, action: str,
+                 payload: Optional[Iterable[str]] = None, description: str = "") -> None:
+        self.acc_id = acc_id
+        self.description = description
+        self.action = action
+        self.payload = list(payload or [])
+        parts = [p.strip().lower() for p in trigger.split("+") if p.strip()]
+        if not parts:
+            raise ValueError(f"trigger vuoto per {acc_id}")
+        self.key = parts[-1]
+        self.modifiers = frozenset(parts[:-1])
+        for mod in self.modifiers:
+            if mod not in ("super", "shift", "ctrl", "alt", "search"):
+                raise ValueError(f"modificatore sconosciuto '{mod}' in {acc_id}")
+
+    @property
+    def key_code(self) -> int:
+        code = KEY_NAME_TO_CODE.get(self.key)
+        if code is None:
+            raise ValueError(f"tasto sconosciuto '{self.key}' in {self.acc_id}")
+        return code
+
+    def matches(self, pressed_mods: Set[str], key_code: int) -> bool:
+        try:
+            if key_code != self.key_code:
+                return False
+        except ValueError:
+            return False
+        return self.modifiers == frozenset(pressed_mods)
+
+    def __repr__(self) -> str:  # pragma: no cover
+        mods = "+".join(sorted(self.modifiers))
+        return f"<Accelerator {self.acc_id} {mods}+{self.key} -> {self.action}>"
+
+
+def load_accelerators(path: str) -> List[Accelerator]:
+    if not os.path.isfile(path):
+        log(f"configurazione {path} assente: uso la scorciatoia di default")
+        return [Accelerator("app_launcher", "super+space", "inject_keys",
+                            ["KEY_SEARCH"], "Apri il launcher centralizzato")]
+
+    with open(path, "r", encoding="utf-8") as fh:
+        data = json.load(fh)
+
+    accelerators: List[Accelerator] = []
+    for entry in data.get("accelerators", []):
+        try:
+            acc = Accelerator(
+                acc_id=str(entry["id"]),
+                trigger=str(entry["trigger"]),
+                action=str(entry.get("action", "inject_keys")),
+                payload=entry.get("keys") or entry.get("command"),
+                description=str(entry.get("description", "")),
+            )
+        except (KeyError, ValueError) as exc:
+            log(f"acceleratore ignorato ({entry}): {exc}")
+            continue
+        if acc.action not in ("inject_keys", "inject_combo", "exec", "inject_key_sequence"):
+            log(f"azione sconosciuta '{acc.action}' per {acc.acc_id}: ignorato")
+            continue
+        accelerators.append(acc)
+
+    # Ordine significativo: le combinazioni piu' specifiche (piu' modificatori)
+    # vengono valutate per prime, cosi' super+shift+space vince su super+space.
+    accelerators.sort(key=lambda a: (-len(a.modifiers), a.acc_id))
+    log(f"{len(accelerators)} acceleratori caricati da {path}")
+    return accelerators
+
+
+# ---------------------------------------------------------------------------
+# Device di input
+# ---------------------------------------------------------------------------
+def is_keyboard(device: InputDevice) -> bool:
+    caps = device.capabilities(absinfo=False)
+    keys = set(caps.get(e.EV_KEY, []))
+    if not keys:
+        return False
+    # Una tastiera ha almeno una decina di tasti alfanumerici; un mouse o un
+    # device di potenza ne ha pochissimi.
+    alnum = {getattr(e, f"KEY_{c}") for c in "QWERTYUIOPASDFGHJKL"}
+    return len(keys & alnum) >= 8
+
+
+def open_devices(skip_names: Set[str]) -> List[InputDevice]:
+    devices: List[InputDevice] = []
+    for path in list_devices():
+        try:
+            device = InputDevice(path)
+        except (OSError, FileNotFoundError):
+            continue
+        if device.name in skip_names:
+            device.close()
+            continue
+        if not is_keyboard(device):
+            device.close()
+            continue
+        devices.append(device)
+    return devices
+
+
+def grab_device(device: InputDevice, enable: bool) -> bool:
+    """Cattura/rilascia in modo esclusivo un device di input."""
+    value = ctypes.c_int(1 if enable else 0)
+    try:
+        fcntl.ioctl(device.fd, _EVIOCGRAB, value)
+        return True
+    except OSError as exc:
+        if exc.errno in (errno.EBUSY, errno.EINVAL):
+            log(f"cattura di {device.name} non possibile ({exc.strerror})")
+        else:
+            log(f"ioctl EVIOCGRAB fallito su {device.name}: {exc}")
+        return False
+
+
+# ---------------------------------------------------------------------------
+# Demone
+# ---------------------------------------------------------------------------
+class AcceleratorDaemon:
+    def __init__(self, accelerators: List[Accelerator], grab: bool = True,
+                 device_filter: Optional[List[str]] = None) -> None:
+        self.accelerators = accelerators
+        self.grab_enabled = grab
+        self.device_filter = device_filter or []
+        self.devices: List[InputDevice] = []
+        self.grabbed: List[InputDevice] = []
+        self.ui: Optional[UInput] = None
+        self.sel = selectors.DefaultSelector()
+        self.pressed_mods: Set[str] = set()
+        self.pending_mods: List[Tuple[InputDevice, object]] = []
+        self.non_modifier_since_pending = False
+        self.running = False
+        self.stats = {"events": 0, "triggers": 0, "forwarded": 0, "swallowed": 0}
+
+    # -- ciclo di vita ---------------------------------------------------------
+    def setup(self) -> bool:
+        cap = {e.EV_KEY: [code for code in KEY_NAME_TO_CODE.values()
+                          if isinstance(code, int) and 0 < code < 256]}
+        try:
+            self.ui = UInput(cap, name=UINPUT_NAME)
+        except OSError as exc:
+            log(f"impossibile creare il device uinput: {exc}")
+            log("verificare CONFIG_INPUT_UINPUT=y e i permessi su /dev/uinput")
+            return False
+
+        self.devices = open_devices({UINPUT_NAME})
+        if self.device_filter:
+            self.devices = [d for d in self.devices
+                            if any(pat.lower() in d.name.lower() for pat in self.device_filter)]
+        if not self.devices:
+            log("nessuna tastiera trovata in /dev/input: il demone resta in attesa")
+            return True
+
+        for device in self.devices:
+            grabbed = False
+            if self.grab_enabled:
+                grabbed = grab_device(device, True)
+                if grabbed:
+                    self.grabbed.append(device)
+            log(f"tastiera: {device.path} '{device.name}' catturata={grabbed}")
+            self.sel.register(device, selectors.EVENT_READ, device)
+
+        if self.grab_enabled and not self.grabbed:
+            log("nessuna tastiera catturabile: modalita' observe (i tasti della "
+                "scorciatoia potrebbero raggiungere anche l'app in focus)")
+        return True
+
+    def teardown(self) -> None:
+        self.running = False
+        for device in self.grabbed:
+            grab_device(device, False)
+        self.grabbed.clear()
+        try:
+            self.sel.close()
+        except Exception:  # pragma: no cover
+            pass
+        for device in self.devices:
+            try:
+                device.close()
+            except OSError:
+                pass
+        self.devices.clear()
+        if self.ui is not None:
+            try:
+                self.ui.close()
+            except OSError:
+                pass
+            self.ui = None
+        log("risorse rilasciate (grab disattivati)")
+
+    # -- iniezione --------------------------------------------------------------
+    def inject(self, key_codes: List[int], hold_modifiers: Optional[List[int]] = None) -> None:
+        if self.ui is None:
+            return
+        mods = list(hold_modifiers or [])
+        try:
+            for code in mods:
+                self.ui.write(e.EV_KEY, code, 1)
+            self.ui.syn()
+            for code in key_codes:
+                self.ui.write(e.EV_KEY, code, 1)
+                self.ui.syn()
+                time.sleep(0.008)
+                self.ui.write(e.EV_KEY, code, 0)
+                self.ui.syn()
+                time.sleep(0.008)
+            for code in reversed(mods):
+                self.ui.write(e.EV_KEY, code, 0)
+            self.ui.syn()
+        except OSError as exc:
+            log(f"iniezione fallita: {exc}")
+
+    def trigger(self, acc: Accelerator) -> None:
+        self.stats["triggers"] += 1
+        log(f"scorciatoia attivata: {acc.acc_id} ({acc.description})")
+        codes: List[int] = []
+        if acc.action in ("inject_keys", "inject_combo", "inject_key_sequence"):
+            for name in acc.payload:
+                code = KEY_NAME_TO_CODE.get(str(name).lower().replace("key_", ""))
+                if code is None:
+                    log(f"tasto '{name}' sconosciuto in {acc.acc_id}")
+                    continue
+                codes.append(code)
+            if not codes:
+                return
+            if acc.action == "inject_combo":
+                # Ultimo elemento = tasto, i precedenti restano premuti.
+                self.inject(codes[-1:], hold_modifiers=codes[:-1])
+            else:
+                self.inject(codes)
+        elif acc.action == "exec":
+            command = list(acc.payload)
+            if not command:
+                return
+            try:
+                subprocess.Popen(command, stdout=subprocess.DEVNULL,
+                                 stderr=subprocess.DEVNULL, start_new_session=True)
+            except OSError as exc:
+                log(f"esecuzione di {command} fallita: {exc}")
+
+    # -- inoltro ------------------------------------------------------------------
+    def forward(self, device: InputDevice, event: object) -> None:
+        if self.ui is None:
+            return
+        try:
+            self.ui.write_event(event)  # type: ignore[arg-type]
+            self.stats["forwarded"] += 1
+        except OSError as exc:
+            log(f"inoltro evento fallito: {exc}")
+
+    def flush_pending_modifiers(self) -> None:
+        if not self.pending_mods:
+            return
+        for device, event in self.pending_mods:
+            self.forward(device, event)
+        if self.ui is not None:
+            try:
+                self.ui.syn()
+            except OSError:
+                pass
+        self.pending_mods.clear()
+        self.non_modifier_since_pending = False
+
+    def drop_pending_modifiers(self) -> None:
+        count = len(self.pending_mods)
+        self.pending_mods.clear()
+        self.non_modifier_since_pending = False
+        self.stats["swallowed"] += count
+
+    # -- loop -----------------------------------------------------------------------
+    def handle_event(self, device: InputDevice) -> None:
+        try:
+            events = device.read()
+        except OSError as exc:
+            if exc.errno in (errno.ENODEV, errno.EBADF):
+                log(f"tastiera rimossa: {device.name}")
+                try:
+                    self.sel.unregister(device)
+                except (KeyError, ValueError):
+                    pass
+                if device in self.grabbed:
+                    self.grabbed.remove(device)
+                if device in self.devices:
+                    self.devices.remove(device)
+                device.close()
+            return
+
+        for event in events:
+            self.stats["events"] += 1
+            if event.type == e.EV_KEY:
+                if self.handle_key(device, event):
+                    continue
+            elif event.type == e.EV_MSC:
+                self.forward(device, event)
+                continue
+            elif event.type == e.EV_SYN:
+                # I SYN vengono rigenerati dal device uinput.
+                continue
+            self.forward(device, event)
+        if self.ui is not None:
+            try:
+                self.ui.syn()
+            except OSError:
+                pass
+
+    def handle_key(self, device: InputDevice, event: object) -> bool:
+        """Ritorna True se l'evento e' stato gestito (inoltrato o inghiottito)."""
+        code = event.code          # type: ignore[attr-defined]
+        value = event.value        # type: ignore[attr-defined]
+
+        if value == 2:  # auto-repeat
+            if code in MODIFIER_KEYS:
+                return True
+            self.flush_pending_modifiers()
+            self.forward(device, event)
+            return True
+
+        if code in MODIFIER_KEYS:
+            mod = MODIFIER_KEYS[code]
+            if value == 1:
+                self.pressed_mods.add(mod)
+                if mod == "super":
+                    self.pressed_mods.add("search")
+                # Hold-back: il modificatore non viene inoltrato subito.
+                self.pending_mods.append((device, event))
+                self.non_modifier_since_pending = False
+            else:
+                self.pressed_mods.discard(mod)
+                if mod == "super":
+                    self.pressed_mods.discard("search")
+                if not self.non_modifier_since_pending and self.pending_mods:
+                    # Tap singolo del modificatore: va inoltrato integralmente
+                    # (down + up) perche' Ash lo interpreti come pressione.
+                    self.flush_pending_modifiers()
+                    self.forward(device, event)
+                    return True
+                self.pending_mods = [p for p in self.pending_mods if p[1].code != code]  # type: ignore[attr-defined]
+                self.forward(device, event)
+            return True
+
+        if value == 1 and self.pressed_mods:
+            for acc in self.accelerators:
+                if acc.matches(self.pressed_mods, code):
+                    self.drop_pending_modifiers()
+                    self.stats["swallowed"] += 1
+                    self.trigger(acc)
+                    self.pressed_mods.clear()
+                    return True
+
+        self.flush_pending_modifiers()
+        self.non_modifier_since_pending = bool(self.pressed_mods)
+        self.forward(device, event)
+        return True
+
+    def run(self) -> int:
+        self.running = True
+        sd_notify("READY=1")
+        last_watchdog = time.time()
+        log(f"demone avviato (pid={os.getpid()}, tastiere={len(self.devices)}, "
+            f"grab={len(self.grabbed)})")
+
+        try:
+            while self.running:
+                ready = self.sel.select(timeout=1.0)
+                for key, _mask in ready:
+                    self.handle_event(key.data)  # type: ignore[attr-defined]
+                now = time.time()
+                if now - last_watchdog >= 5.0:
+                    sd_notify("WATCHDOG=1")
+                    last_watchdog = now
+        except KeyboardInterrupt:
+            log("interrotto da tastiera")
+        finally:
+            self.teardown()
+            sd_notify("STOPPING=1")
+            log(f"statistiche: {self.stats}")
+        return 0
+
+
+# ---------------------------------------------------------------------------
+def write_pidfile() -> None:
+    try:
+        os.makedirs(os.path.dirname(PIDFILE), exist_ok=True)
+        with open(PIDFILE, "w", encoding="utf-8") as fh:
+            fh.write(f"{os.getpid()}\n")
+    except OSError as exc:
+        log(f"impossibile scrivere {PIDFILE}: {exc}")
+
+
+def remove_pidfile() -> None:
+    try:
+        os.unlink(PIDFILE)
+    except OSError:
+        pass
+
+
+def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        prog=PROG,
+        description="Scorciatoie globali prismOS (Launcher stile Spotlight via KEY_SEARCH).")
+    parser.add_argument("--config", default=os.environ.get("PRISMOS_ACCEL_CONFIG", CONFIG_DEFAULT),
+                        help=f"file JSON degli acceleratori (default: {CONFIG_DEFAULT})")
+    parser.add_argument("--no-grab", action="store_true",
+                        help="non catturare le tastiere (modalita' observe)")
+    parser.add_argument("--device", action="append", default=None,
+                        help="filtra le tastiere per sottostringa del nome (ripetibile)")
+    parser.add_argument("--list", action="store_true",
+                        help="elenca gli acceleratori configurati ed esce")
+    parser.add_argument("--list-devices", action="store_true",
+                        help="elenca le tastiere rilevate ed esce")
+    parser.add_argument("--once", action="store_true",
+                        help="esegue un ciclo di 10 secondi (debug)")
+    parser.add_argument("--version", action="version", version=f"{PROG} {VERSION}")
+    return parser.parse_args(argv)
+
+
+def main(argv: Optional[List[str]] = None) -> int:
+    args = parse_args(argv)
+
+    if os.environ.get("PRISMOS_ACCEL_GRAB", "1") == "0":
+        args.no_grab = True
+
+    try:
+        accelerators = load_accelerators(args.config)
+    except (OSError, json.JSONDecodeError) as exc:
+        log(f"configurazione non leggibile ({args.config}): {exc}")
+        return 2
+
+    if args.list:
+        for acc in accelerators:
+            mods = "+".join(sorted(acc.modifiers)) or "-"
+            print(f"{acc.acc_id:22s} {mods}+{acc.key:10s} -> {acc.action} "
+                  f"{' '.join(acc.payload)}   # {acc.description}")
+        return 0
+
+    if args.list_devices:
+        for device in open_devices(set()):
+            print(f"{device.path:24s} {device.name}")
+            device.close()
+        return 0
+
+    if os.geteuid() != 0:
+        log("il demone richiede root (accesso a /dev/input e /dev/uinput)")
+        return 4
+
+    daemon = AcceleratorDaemon(accelerators, grab=not args.no_grab,
+                               device_filter=args.device)
+    stop_event = threading.Event()
+
+    def handle_signal(signum: int, _frame: object) -> None:
+        log(f"segnale {signum} ricevuto: arresto in corso")
+        stop_event.set()
+        daemon.running = False
+
+    signal.signal(signal.SIGTERM, handle_signal)
+    signal.signal(signal.SIGINT, handle_signal)
+    signal.signal(signal.SIGHUP, lambda *_: None)
+
+    if not daemon.setup():
+        return 5
+
+    write_pidfile()
+    try:
+        if args.once:
+            daemon.sel.select(timeout=10.0)
+            daemon.teardown()
+            return 0
+        return daemon.run()
+    finally:
+        remove_pidfile()
+
+
+if __name__ == "__main__":
+    sys.exit(main())

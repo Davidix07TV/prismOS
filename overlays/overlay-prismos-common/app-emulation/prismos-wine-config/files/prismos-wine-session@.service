@@ -1,0 +1,64 @@
+# =============================================================================
+#  prismos-wine-session@<uid>.service
+# -----------------------------------------------------------------------------
+#  wineserver persistente per l'utente di sessione. Mantenere un solo
+#  wineserver vivo evita che ogni .exe paghi l'inizializzazione del prefix
+#  (~8-25 s su disco meccanico), ma in prismOS Slim la unita' NON e' avviata al
+#  boot: la accende /usr/bin/prismos-slim-launcher all'apertura del file e la
+#  spegne (wineserver -k + systemctl stop) alla chiusura dell'applicazione.
+#
+#  Istanza tipica: prismos-wine-session@1000.service (chronos)
+# =============================================================================
+[Unit]
+Description=prismOS Wine session (persistent wineserver) for UID %i
+Documentation=man:wineserver(1)
+Documentation=https://github.com/Davidix07TV/prismOS/blob/main/docs/wine-integration.md
+After=systemd-user-sessions.target ui.target
+Wants=graphical.target
+StopWhenUnneeded=yes
+ConditionUser=!root
+
+[Service]
+Type=simple
+User=%i
+Group=%i
+Environment=XDG_RUNTIME_DIR=/run/user/%i
+Environment=HOME=/home/chronos
+Environment=WINEPREFIX=/home/chronos/user/WineBottles/Default
+Environment=WINEARCH=win64
+Environment=WINEDEBUG=-all
+Environment=PROTON_USE_WINED3D=1
+# Valori reali (socket Wayland, presenza di Vulkan, limiti wined3d) scritti da
+# /usr/libexec/prismos/prismos-wine-prepare. Il prefisso '-' rende il file
+# opzionale: se manca, valgono i default qui sopra.
+EnvironmentFile=-/run/prismos/wine-%i.env
+
+ExecStartPre=/usr/libexec/prismos/prismos-wine-prepare %i
+ExecStart=/usr/bin/wineserver -f
+ExecStop=/usr/bin/wineserver -k
+ExecStopPost=/bin/sh -c 'pkill -u %i -x wineserver >/dev/null 2>&1 || true'
+
+Restart=on-failure
+RestartSec=3
+StartLimitIntervalSec=120
+StartLimitBurst=5
+TimeoutStartSec=120
+TimeoutStopSec=10
+KillMode=mixed
+KillSignal=SIGTERM
+FinalKillSignal=SIGKILL
+SendSIGKILL=yes
+OOMPolicy=stop
+
+Slice=prismos-subsystems.slice
+MemoryHigh=384M
+MemoryMax=512M
+CPUWeight=100
+TasksMax=512
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=prismos-wine
+
+[Install]
+WantedBy=prismos-subsystems.target

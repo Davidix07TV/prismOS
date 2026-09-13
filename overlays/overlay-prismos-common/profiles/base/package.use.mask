@@ -1,0 +1,24 @@
+# =============================================================================
+# prismOS - package.use.mask
+# Maschere per-pacchetto: impediscono che un singolo ebuild riattivi
+# sottosistemi incompatibili con l'ISA di destinazione (SSE4.1 max).
+# =============================================================================
+
+# chromeos-chrome: niente ARC, niente build ottimizzate oltre SSE4.1.
+chromeos-base/chromiumos-chrome arc arc-plus arcplusplus arcvm nacl thinlto-pgo
+
+# Rimuove il bridge ARC dalla sessione Ash (sostituito da Waydroid/exo-wayland).
+chromeos-base/chromeos-base arc arc-plus arcplusplus
+
+# crosvm: disabilita il backend "arcvm" (VM Android) mantenendo il supporto
+# alle VM Linux generiche (Crostini) e al sandbox di Waydroid via LXC.
+chromeos-base/crosvm arcvm
+
+# android-tools / sdk host: inutili senza ARC, riducono il tempo di build.
+dev-util/android-sdk-update-manager arc
+app-emulation/android-tools arc
+
+# media-libs: niente decoder che richiedono POPCNT per le path SIMD.
+media-libs/libvpx sse4_2
+media-libs/x265 sse4_2
+media-video/ffmpeg sse4_2

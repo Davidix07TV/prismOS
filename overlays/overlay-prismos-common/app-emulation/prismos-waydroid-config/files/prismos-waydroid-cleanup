@@ -1,0 +1,138 @@
+#!/usr/bin/env bash
+# =============================================================================
+#  /usr/libexec/prismos/prismos-waydroid-cleanup
+# -----------------------------------------------------------------------------
+#  ExecStopPost di prismos-waydroid-container.service. Smonta e rimuove tutto
+#  cio' che prismos-waydroid-prepare ha creato, e libera immediatamente la
+#  memoria: in prismOS Slim questo script e' cio' che restituisce 400-700 MB di
+#  RAM all'ospite nel momento in cui l'app Android viene chiusa.
+#
+#  E' idempotente e tollerante agli errori: viene eseguito anche quando il
+#  container e' terminato in modo anomalo.
+# =============================================================================
+
+set -uo pipefail
+
+readonly PROG="prismos-waydroid-cleanup"
+readonly WAYDROID_ROOT="/var/lib/waydroid"
+readonly BINDERFS_MOUNT="/dev/binderfs"
+readonly BRIDGE_NAME="waydroid0"
+readonly BRIDGE_NET="192.168.240.0/24"
+readonly RUN_DIR="/run/prismos"
+readonly LOG_TAG="prismos-waydroid"
+
+log() { logger -t "${LOG_TAG}" -p user.info -- "${PROG}: $*" 2>/dev/null || true; printf '%s: %s\n' "${PROG}" "$*" >&2; }
+have() { command -v "$1" >/dev/null 2>&1; }
+
+kill_android_processes() {
+  # Processi del container ancora vivi (zygote e figli). Il PID namespace e'
+  # condiviso con l'ospite, quindi sono terminabili direttamente da qui.
+  local p name
+  for name in zygote zygote_secondary surfaceflinger system_server logcat \
+              servicemanager hwservicemanager vndservicemanager netd \
+              installd vold audioserver cameraserver mediaserver \
+              media.extractor media.codec keystore gatekeeperd storaged \
+              lmkd statsd tombstoned wp supplicant wificond; do
+    pkill -TERM -x "${name}" >/dev/null 2>&1 || true
+  done
+  sleep 1
+  for name in zygote surfaceflinger system_server netd installd logcat; do
+    pkill -KILL -x "${name}" >/dev/null 2>&1 || true
+  done
+
+  # Qualsiasi processo residuo il cui exe punti dentro la rootfs del container.
+  while read -r p; do
+    [[ -n "${p}" ]] || continue
+    local exe
+    exe="$(readlink -f "/proc/${p}/exe" 2>/dev/null || true)"
+    case "${exe}" in
+      "${WAYDROID_ROOT}"/*|/system/*|/vendor/*)
+        log "termino il processo ospite del container: pid=${p} exe=${exe}"
+        kill -KILL "${p}" 2>/dev/null || true
+        ;;
+    esac
+  done < <(ls /proc 2>/dev/null | grep -E '^[0-9]+$' || true)
+}
+
+teardown_network() {
+  if have iptables; then
+    iptables -t nat -D POSTROUTING -s "${BRIDGE_NET}" -j MASQUERADE 2>/dev/null || true
+    iptables -D FORWARD -i "${BRIDGE_NAME}" -j ACCEPT 2>/dev/null || true
+    iptables -D FORWARD -o "${BRIDGE_NAME}" -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null || true
+  fi
+  if have ip && ip link show "${BRIDGE_NAME}" >/dev/null 2>&1; then
+    ip link set "${BRIDGE_NAME}" down 2>/dev/null || true
+    ip link delete "${BRIDGE_NAME}" 2>/dev/null || true
+    log "bridge ${BRIDGE_NAME} rimosso"
+  fi
+}
+
+teardown_mounts() {
+  local mp
+  # I mount del container possono restare appesi se lxc-stop e' stato forzato.
+  while read -r mp; do
+    [[ -n "${mp}" ]] || continue
+    log "smonto ${mp}"
+    umount -l "${mp}" 2>/dev/null || umount "${mp}" 2>/dev/null || true
+  done < <(awk '{ print $2 }' /proc/mounts 2>/dev/null \
+           | grep -E "${WAYDROID_ROOT}|${BINDERFS_MOUNT}" | sort -r || true)
+
+  # Loop device delle immagini (system.img/vendor.img montati in loop).
+  if have losetup; then
+    local dev backing
+    while read -r dev backing; do
+      case "${backing}" in
+        "${WAYDROID_ROOT}"/*)
+          log "rilascio il loop device ${dev} (${backing})"
+          losetup -d "${dev}" 2>/dev/null || true
+          ;;
+      esac
+    done < <(losetup -l -n -O NAME,BACK-FILE 2>/dev/null || true)
+  fi
+}
+
+teardown_binderfs() {
+  if mountpoint -q "${BINDERFS_MOUNT}" 2>/dev/null; then
+    umount "${BINDERFS_MOUNT}" 2>/dev/null || umount -l "${BINDERFS_MOUNT}" 2>/dev/null || true
+    log "binderfs smontato"
+  fi
+}
+
+release_memory() {
+  sync
+  # Compattazione e rilascio della page cache occupata dalle immagini del
+  # container: su macchine con 1-2 GB di RAM restituisce centinaia di MB.
+  [[ -w /proc/sys/vm/drop_caches ]] && echo 3 > /proc/sys/vm/drop_caches 2>/dev/null || true
+  [[ -w /proc/sys/vm/compact_memory ]] && echo 1 > /proc/sys/vm/compact_memory 2>/dev/null || true
+
+  local avail_kb total_kb
+  avail_kb="$(awk '/^MemAvailable:/ { print $2; exit }' /proc/meminfo 2>/dev/null || echo 0)"
+  total_kb="$(awk '/^MemTotal:/ { print $2; exit }' /proc/meminfo 2>/dev/null || echo 0)"
+  if [[ "${avail_kb}" =~ ^[0-9]+$ ]]; then
+    log "RAM liberata: disponibile $(( avail_kb / 1024 )) MiB su $(( total_kb / 1024 )) MiB"
+  fi
+}
+
+cleanup_runtime() {
+  local f
+  for f in "${RUN_DIR}"/waydroid-*.env; do
+    [[ -e "${f}" ]] || continue
+    rm -f -- "${f}"
+  done
+}
+
+main() {
+  if [[ ${EUID} -ne 0 ]]; then
+    log "esecuzione non privilegiata: pulizia parziale"
+  fi
+  log "teardown del container Waydroid"
+  kill_android_processes
+  teardown_mounts
+  teardown_network
+  teardown_binderfs
+  cleanup_runtime
+  release_memory
+  log "teardown completato"
+}
+
+main "$@"

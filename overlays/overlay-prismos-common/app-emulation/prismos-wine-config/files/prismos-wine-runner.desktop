@@ -1,0 +1,20 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Run with prismOS Wine
+Name[it]=Esegui con Wine (prismOS)
+GenericName=Windows Compatibility Layer
+GenericName[it]=Livello di compatibilita' Windows
+Comment=Run a Windows .exe/.msi through Wine with Proton optimizations; on prismOS Slim the subsystem is started on demand and killed when the application closes
+Comment[it]=Esegue un .exe/.msi Windows con Wine e le ottimizzazioni Proton; su prismOS Slim il sottosistema viene avviato on-demand e terminato alla chiusura dell'applicazione
+Exec=/usr/bin/prismos-wine-run %f
+TryExec=/usr/bin/prismos-wine-run
+Icon=prismos-wine
+Terminal=false
+Categories=System;Emulator;Wine;
+MimeType=application/x-ms-dos-executable;application/x-msi;application/x-msdownload;application/x-dosexec;application/x-ms-win-installer;
+Keywords=wine;windows;exe;msi;proton;bottles;prismos;
+StartupNotify=true
+NoDisplay=false
+X-PrismOS-OnDemand=true
+X-PrismOS-Subsystem=wine
