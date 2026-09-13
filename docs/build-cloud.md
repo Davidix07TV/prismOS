@@ -140,6 +140,70 @@ works unchanged), or route 2.1 directly inside the VM.
 | Route | Cost | Setup effort | Constraints |
 |---|---|---|---|
 | GitHub-hosted only | free (`validate`) | none | **full build impossible**: 6 h/job, 14 GB disk, 10 GB cache; larger runners need a Team plan and are billed anyway |
+| **Cloud free trial** (§5) | **€0** (card required for identity check) | medium (one SSH session) | 30–90 day window, one account per person |
 | Hourly cloud server | ≈ €1–5 per attempt | medium (one SSH session) | provider account + payment method |
 | VM on Windows | 0 | easy | PC with ≥ 16 GB RAM, ≥ 160 GB free; builds are slower than bare metal |
 | Self-hosted on a real Linux PC | 0 | easy | a second machine always on |
+
+## 5. The genuinely free online route: cloud trial credits
+
+No free *tier* anywhere can host this build — GitHub-hosted runners have 14 GB
+of disk and a 6-hour cap, GitHub Codespaces gives 15 GB of storage, GitLab.com
+SaaS runners are smaller still, Google Cloud's always-free e2-micro has 1 GB
+RAM / 30 GB disk, and Oracle's always-free tier is either 1 GB x86 or ARM
+Ampere (ChromiumOS cannot cross-build an amd64 image from an arm64 host).
+Google also no longer publishes official pre-built ChromiumOS images to
+download (the public `chromiumos-image` bucket and the `build_artifacts`
+documentation were retired), so there is no "download someone else's build"
+shortcut either.
+
+What *is* free, with a card used only for identity verification:
+
+| Provider | Trial credit | Window | Right-sized machine |
+|---|---|---|---|
+| Google Cloud | $300 | 90 days | `e2-standard-8` (8 vCPU / 32 GB) + 300 GB pd-balanced, Ubuntu 24.04 |
+| Oracle Cloud | $300 | 30 days | `VM.Standard3.Flex` 8 OCPU / 32 GB (x86, **not** Ampere ARM) + 300 GB boot volume, Ubuntu 24.04 |
+| Azure | $200 | 30 days | `D8s_v5` (8 vCPU / 32 GB) + 300 GB Premium SSD |
+
+A full prismOS build consumes roughly **$3–8** of credit (≈ 8–12 hours on
+8 vCPU including `repo sync`, plus ~300 GB of disk for a few hours), so one
+trial covers dozens of attempts.
+
+### 5.1 Google Cloud, entirely from the browser (no local installs)
+
+1. <https://console.cloud.google.com> → *Start free* (card = identity check,
+   spending stays at $0 unless you manually upgrade the account).
+2. **Compute Engine → VM instances → Create**:
+   region `us-central1`, machine `e2-standard-8`, boot disk **Ubuntu 24.04
+   LTS, 300 GB balanced persistent disk**, no public HTTP(S) needed.
+3. Click **SSH** (browser terminal) and follow **§2.1 route A** verbatim
+   (create the `prismos` user, `repo sync`, `build_iso.sh pro --bundle`).
+4. When the build finishes, open **Cloud Shell** (icon `>_` in the top bar):
+
+   ```bash
+   gcloud compute scp prismos@INSTANCE_NAME:prismOS/output/prismOS_pro_legacy.img . \
+       --zone=us-central1-a
+   ```
+
+   then download the file to your Windows PC from Cloud Shell's ⋮ menu →
+   *Download*.
+5. **Delete the VM and its disk** (Compute Engine → VM instances → Delete,
+   including boot disk) so the credit stops being consumed.
+
+### 5.2 Oracle Cloud
+
+1. <https://signup.cloud.oracle.com> → free trial ($300 / 30 days).
+2. **Compute → Instances → Create instance**: Ubuntu 24.04, shape
+   **VM.Standard3.Flex (x86) with 8 OCPU / 32 GB** — do *not* pick an Ampere
+   (ARM) shape; boot volume 300 GB; save the generated SSH key.
+3. `ssh ubuntu@PUBLIC_IP` and follow **§2.1 route A** (the `ubuntu` user
+   already has sudo: you may skip the user-creation block and run it directly,
+   but keep the build out of `/home` root-owned paths).
+4. `scp ubuntu@PUBLIC_IP:prismOS/output/prismOS_pro_legacy.img .` from
+   Windows PowerShell, then **Terminate** the instance (and its boot volume).
+
+> [!WARNING]
+> Trial accounts sometimes hit "out of capacity" on Flex/standard shapes in
+> the home region: pick another availability domain or region and retry.
+> Destroy the machine as soon as the `.img` is downloaded — leaving a 300 GB
+> VM idle burns credit for nothing.
