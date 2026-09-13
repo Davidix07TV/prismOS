@@ -182,13 +182,16 @@ detect_active_edition() {
 	local target
 	target="$(readlink "${link}")"
 	target="${target##*/}"
-	case "${target}" in
-		overlay-prismos-edu)  echo "edu" ;;
-		overlay-prismos-home) echo "home" ;;
-		overlay-prismos-work) echo "work" ;;
-		overlay-prismos-slim) echo "slim" ;;
-		*) return 1 ;;
-	esac
+	# Derive the edition from the shared list instead of a hardcoded case, so
+	# that new editions (PRO) are recognized without touching this function.
+	local ed
+	for ed in "${PRISMOS_EDITIONS[@]}"; do
+		if [[ "${target}" == "overlay-prismos-${ed}" ]]; then
+			echo "${ed}"
+			return 0
+		fi
+	done
+	return 1
 }
 
 kernel_version_for() {

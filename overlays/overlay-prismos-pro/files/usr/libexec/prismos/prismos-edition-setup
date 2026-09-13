@@ -1,0 +1,362 @@
+#!/usr/bin/env bash
+# =============================================================================
+#  prismos-edition-setup - PRO edition chooser (first setup)
+# -----------------------------------------------------------------------------
+#  Install path : /usr/libexec/prismos/prismos-edition-setup (0750 root:root)
+#  Package      : shipped by the overlay-prismos-pro rootfs tree
+#  Unit         : prismos-edition-setup.service (Before=prismos-firstboot)
+#  Configuration: /etc/prismos/pro.conf
+#  Log          : journal (ident=prismos-edition-setup)
+#
+#  PURPOSE
+#  -------
+#  The PRO image is a single all-in-one build: it carries the configuration
+#  templates of the four targeted editions under
+#  /usr/share/prismos/editions/<edition>/ (etc/ subtree, including the Chromium
+#  policy where the edition defines one). This helper decides WHICH edition
+#  this machine becomes, and materializes the choice:
+#
+#    1. kernel command line   prismos.edition=<edu|home|work|slim>
+#    2. preseed file          /etc/prismos/edition-choice (one word)
+#    3. interactive prompt    on /dev/console, with a configurable timeout
+#
+#  The chosen template is copied over the live /etc (edition.conf, tuning
+#  files, zram/earlyoom defaults, device policy), the previous PRO edition.conf
+#  is kept as /etc/prismos/edition.conf.pro-original, and a stamp is written so
+#  the chooser never runs twice. prismos-firstboot, ordered after this unit,
+#  then applies subsystem states, dock parameters and unit aggregation exactly
+#  as on a native edition build.
+#
+#  SAFETY
+#  ------
+#  * Unknown or missing choices fall back to the configured default edition
+#    after the timeout, never to a broken state.
+#  * The operation is atomic per file (copy to temp + mv) and is skipped
+#    entirely when the template directory is incomplete.
+#  * --rechoose removes the stamp so the next boot asks again; --show prints
+#    the current state without changing anything.
+# =============================================================================
+
+set -Eeuo pipefail
+shopt -s inherit_errexit
+
+readonly PROG="prismos-edition-setup"
+readonly VERSION="1.0.0"
+# The two paths honour environment overrides so the chooser can be exercised
+# in a sandbox or against a mounted rootfs (--rootfs style testing).
+readonly PRO_CONF="${PRISMOS_PRO_CONF:-/etc/prismos/pro.conf}"
+readonly EDITION_CONF="${PRISMOS_EDITION_CONF:-/etc/prismos/edition.conf}"
+readonly VALID_EDITIONS=("edu" "home" "work" "slim")
+
+# Defaults, overridable by /etc/prismos/pro.conf.
+TEMPLATES_DIR="/usr/share/prismos/editions"
+STAMP_FILE="/var/lib/prismos/state/edition-choice.done"
+PRESEED_FILE="/etc/prismos/edition-choice"
+CMDLINE_KEY="prismos.edition"
+CONSOLE="/dev/console"
+TIMEOUT_SEC="60"
+DEFAULT_EDITION="home"
+
+MODE="choose"
+
+# -----------------------------------------------------------------------------
+#  Logging
+# -----------------------------------------------------------------------------
+log()  { logger -t "${PROG}" -p user.info    -- "${PROG}: $*" 2>/dev/null || true; printf '%s: %s\n'    "${PROG}" "$*" >&2; }
+warn() { logger -t "${PROG}" -p user.warning -- "${PROG}: $*" 2>/dev/null || true; printf '%s: WARNING %s\n' "${PROG}" "$*" >&2; }
+err()  { logger -t "${PROG}" -p user.err     -- "${PROG}: $*" 2>/dev/null || true; printf '%s: ERROR %s\n'   "${PROG}" "$*" >&2; }
+
+die() {
+	local code="$1"; shift
+	err "$*"
+	exit "${code}"
+}
+
+usage() {
+	cat <<EOF
+${PROG} ${VERSION} - prismOS PRO edition chooser
+
+USAGE
+  ${PROG} [command]
+
+COMMANDS
+  (none)      resolve the edition and materialize the choice (idempotent:
+              does nothing when the stamp file exists)
+  --rechoose  remove the stamp so the next boot asks again, then exit
+  --show      print the current choice and template status, then exit
+  --help      this message
+  --version   version
+
+RESOLUTION ORDER
+  1. kernel command line  ${CMDLINE_KEY}=<edu|home|work|slim>
+  2. preseed file         ${PRESEED_FILE}
+  3. interactive prompt   on ${CONSOLE}, timeout ${TIMEOUT_SEC}s,
+                          fallback '${DEFAULT_EDITION}'
+
+FILES
+  ${TEMPLATES_DIR}/<edition>/etc/   template subtree of each edition
+  ${EDITION_CONF}                   live contract, replaced by the choice
+  ${STAMP_FILE}                     stamp written after a successful choice
+EOF
+}
+
+# -----------------------------------------------------------------------------
+#  Configuration and arguments
+# -----------------------------------------------------------------------------
+load_conf() {
+	[[ -r "${PRO_CONF}" ]] || return 0
+	# shellcheck disable=SC1090
+	source "${PRO_CONF}"
+	TEMPLATES_DIR="${PRO_EDITION_TEMPLATES:-${TEMPLATES_DIR}}"
+	STAMP_FILE="${PRO_CHOICE_STAMP:-${STAMP_FILE}}"
+	PRESEED_FILE="${PRO_CHOOSER_PRESEED:-${PRESEED_FILE}}"
+	CMDLINE_KEY="${PRO_CHOOSER_CMDLINE_KEY:-${CMDLINE_KEY}}"
+	CONSOLE="${PRO_CHOOSER_CONSOLE:-${CONSOLE}}"
+	TIMEOUT_SEC="${PRO_CHOOSER_TIMEOUT_SEC:-${TIMEOUT_SEC}}"
+	DEFAULT_EDITION="${PRO_CHOOSER_DEFAULT:-${DEFAULT_EDITION}}"
+	return 0
+}
+
+parse_args() {
+	while (( $# > 0 )); do
+		case "$1" in
+			--rechoose) MODE="rechoose"; shift ;;
+			--show)     MODE="show"; shift ;;
+			--help|-h)  usage; exit 0 ;;
+			--version)  printf '%s %s\n' "${PROG}" "${VERSION}"; exit 0 ;;
+			*)          usage >&2; exit 2 ;;
+		esac
+	done
+}
+
+is_valid_edition() {
+	local candidate="$1" ed
+	for ed in "${VALID_EDITIONS[@]}"; do
+		[[ "${candidate}" == "${ed}" ]] && return 0
+	done
+	return 1
+}
+
+# -----------------------------------------------------------------------------
+#  Choice resolution
+# -----------------------------------------------------------------------------
+choice_from_cmdline() {
+	local key value
+	while read -r key value; do
+		[[ "${key}" == "${CMDLINE_KEY}" ]] || continue
+		value="${value%%,*}"
+		printf '%s\n' "${value,,}"
+		return 0
+	done < /proc/cmdline
+	return 1
+}
+
+choice_from_preseed() {
+	local value=""
+	[[ -r "${PRESEED_FILE}" ]] || return 1
+	value="$(tr -d '[:space:]' < "${PRESEED_FILE}" | head -c 32)"
+	[[ -n "${value}" ]] || return 1
+	printf '%s\n' "${value,,}"
+	return 0
+}
+
+choice_from_console() {
+	local choice="" banner
+	banner="$(sed -nE 's/^PRO_CHOOSER_BANNER="([^"]*)".*/\1/p' "${PRO_CONF}" 2>/dev/null | head -1)"
+	[[ -n "${banner}" ]] || banner="prismOS Pro - choose the edition for this machine"
+
+	if [[ ! -w "${CONSOLE}" || ! -r "${CONSOLE}" ]]; then
+		warn "console ${CONSOLE} unavailable: falling back to '${DEFAULT_EDITION}'"
+		printf '%s\n' "${DEFAULT_EDITION}"
+		return 0
+	fi
+
+	{
+		printf '\n==============================================================\n'
+		printf '  %s\n' "${banner}"
+		printf '==============================================================\n'
+		printf '  1) edu    school lab: policies, ephemeral profiles, no gaming\n'
+		printf '  2) home   media, streaming and light gaming\n'
+		printf '  3) work   M365, VPN with kill-switch, encrypted Downloads\n'
+		printf '  4) slim   under 2 GB of RAM, subsystems on demand\n'
+		printf '----------------------------------------------------------------------\n'
+		printf '  Choice [1-4 / edu|home|work|slim] (default %s in %ss): ' \
+			"${DEFAULT_EDITION}" "${TIMEOUT_SEC}"
+	} > "${CONSOLE}"
+
+	# Read from the console with a timeout; an expired or empty answer falls
+	# back to the default edition instead of leaving the machine unconfigured.
+	if IFS= read -r -t "${TIMEOUT_SEC}" choice < "${CONSOLE}"; then
+		:
+	else
+		choice=""
+	fi
+	printf '\n' > "${CONSOLE}"
+
+	case "${choice,,}" in
+		""|"${DEFAULT_EDITION}")
+			printf '%s\n' "${DEFAULT_EDITION}" ;;
+		1) printf 'edu\n' ;;
+		2) printf 'home\n' ;;
+		3) printf 'work\n' ;;
+		4) printf 'slim\n' ;;
+		*) printf '%s\n' "${choice,,}" ;;
+	esac
+	return 0
+}
+
+resolve_choice() {
+	local choice=""
+
+	if choice="$(choice_from_cmdline)"; then
+		log "choice from kernel command line: ${choice}"
+	elif choice="$(choice_from_preseed)"; then
+		log "choice from preseed file ${PRESEED_FILE}: ${choice}"
+	else
+		log "no cmdline/preseed choice: asking on ${CONSOLE}"
+		choice="$(choice_from_console)"
+	fi
+
+	if ! is_valid_edition "${choice}"; then
+		warn "invalid edition '${choice}': falling back to '${DEFAULT_EDITION}'"
+		choice="${DEFAULT_EDITION}"
+	fi
+	printf '%s\n' "${choice}"
+}
+
+# -----------------------------------------------------------------------------
+#  Materialization
+# -----------------------------------------------------------------------------
+template_dir() { printf '%s/%s' "${TEMPLATES_DIR}" "$1"; }
+
+template_complete() {
+	local dir
+	dir="$(template_dir "$1")"
+	[[ -f "${dir}/etc/prismos/edition.conf" ]] || return 1
+	[[ -d "${dir}/etc" ]] || return 1
+	return 0
+}
+
+atomic_copy() {
+	local src="$1" dst="$2" tmp
+	tmp="${dst}.prismos-tmp"
+	install -D -m 0644 "${src}" "${tmp}" || return 1
+	mv -f "${tmp}" "${dst}" || return 1
+	return 0
+}
+
+apply_choice() {
+	local edition="$1" dir
+	dir="$(template_dir "${edition}")"
+
+	template_complete "${edition}" || \
+		die 3 "template of edition '${edition}' incomplete: ${dir}"
+
+	# Keep the PRO original for reference and for --rechoose diagnostics.
+	if [[ -f "${EDITION_CONF}" && ! -f "${EDITION_CONF}.pro-original" ]]; then
+		atomic_copy "${EDITION_CONF}" "${EDITION_CONF}.pro-original" || \
+			warn "could not preserve the original edition.conf"
+	fi
+
+	log "materializing edition '${edition}' from ${dir}"
+	# The template subtree mirrors /etc: derive the live root from the path of
+	# edition.conf so the chooser also works against a mounted rootfs or a
+	# test sandbox (PRISMOS_EDITION_CONF override).
+	local live_root rel
+	live_root="$(dirname "$(dirname "${EDITION_CONF}")")"
+	while IFS= read -r -d '' rel; do
+		local src="${dir}/${rel}" dst="${live_root}/${rel#etc/}"
+		[[ -f "${src}" ]] || continue
+		install -D -d "$(dirname "${dst}")"
+		atomic_copy "${src}" "${dst}" || die 4 "failed to install ${dst}"
+	done < <(cd "${dir}" && find etc -type f -print0)
+
+	# The dock policy of the chosen edition, when it defines one, must win
+	# over any residue: zz-prismos-dock.json is regenerated at next boot by
+	# prismos-dock-apply from the new edition.conf, nothing to do here.
+	log "edition '${edition}' applied: ${EDITION_CONF}"
+}
+
+write_stamp() {
+	local edition="$1"
+	install -D -d "$(dirname "${STAMP_FILE}")"
+	{
+		printf 'PRISMOS_EDITION_CHOICE="%s"\n' "${edition}"
+		printf 'PRISMOS_CHOICE_TIMESTAMP="%s"\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+		printf 'PRISMOS_CHOICE_HOSTNAME="%s"\n' "$(hostname 2>/dev/null || echo unknown)"
+	} > "${STAMP_FILE}"
+	log "stamp written: ${STAMP_FILE}"
+}
+
+current_choice() {
+	[[ -r "${STAMP_FILE}" ]] || return 1
+	sed -nE 's/^PRISMOS_EDITION_CHOICE="([^"]*)".*/\1/p' "${STAMP_FILE}" | head -1
+}
+
+# -----------------------------------------------------------------------------
+#  Modes
+# -----------------------------------------------------------------------------
+cmd_show() {
+	local choice
+	printf '%s %s - state\n' "${PROG}" "${VERSION}"
+	if choice="$(current_choice)"; then
+		printf '  chosen edition : %s\n' "${choice}"
+		printf '  stamp          : %s\n' "${STAMP_FILE}"
+	else
+		printf '  chosen edition : (none yet: the chooser will run at next boot)\n'
+	fi
+	printf '  live contract  : %s\n' "${EDITION_CONF}"
+	if [[ -f "${EDITION_CONF}" ]]; then
+		printf '  live EDITION_ID: %s\n' \
+			"$(sed -nE 's/^[[:space:]]*EDITION_ID="?([^"]*)"?.*/\1/p' "${EDITION_CONF}" | head -1)"
+	fi
+	local ed
+	for ed in "${VALID_EDITIONS[@]}"; do
+		if template_complete "${ed}"; then
+			printf '  template %-5s : complete (%s)\n' "${ed}" "$(template_dir "${ed}")"
+		else
+			printf '  template %-5s : MISSING or incomplete\n' "${ed}"
+		fi
+	done
+	return 0
+}
+
+cmd_rechoose() {
+	if [[ -f "${STAMP_FILE}" ]]; then
+		rm -f "${STAMP_FILE}"
+		log "stamp removed: the next boot will ask for the edition again"
+	else
+		log "no stamp present: nothing to rechoose"
+	fi
+	return 0
+}
+
+cmd_choose() {
+	local choice existing
+	if [[ -f "${STAMP_FILE}" ]]; then
+		existing="$(current_choice || true)"
+		log "stamp already present (choice: ${existing:-unknown}): nothing to do"
+		return 0
+	fi
+
+	[[ -d "${TEMPLATES_DIR}" ]] || \
+		die 3 "template root missing: ${TEMPLATES_DIR} (PRO image corrupted?)"
+
+	choice="$(resolve_choice)"
+	apply_choice "${choice}"
+	write_stamp "${choice}"
+	log "setup complete: this machine is now prismOS ${choice^^}"
+	return 0
+}
+
+main() {
+	parse_args "$@"
+	load_conf
+	case "${MODE}" in
+		choose)   cmd_choose ;;
+		rechoose) cmd_rechoose ;;
+		show)     cmd_show ;;
+	esac
+}
+
+main "$@"

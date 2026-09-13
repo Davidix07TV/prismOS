@@ -1,87 +1,88 @@
-# Integrazione Waydroid in prismOS
+# Waydroid integration in prismOS
 
-Sostituzione integrale di ARC/ARC++/ARCVM con un container Android basato su **Waydroid** e
-immagini **LineageOS 16.0 (Android 9) x86 a 32 bit**, ricostruite con floor ISA SSE4.1.
+Complete replacement of ARC/ARC++/ARCVM with an Android container based on **Waydroid**
+and **LineageOS 16.0 (Android 9) 32-bit x86** images rebuilt with an SSE4.1 ISA floor.
 
-Documentazione di riferimento per le unità `prismos-waydroid-container.service` e
+Reference documentation for the units `prismos-waydroid-container.service` and
 `prismos-waydroid-session@.service`.
 
 ---
 
-## 1. Perché ARC non è utilizzabile su CPU senza SSE4.2
+## 1. Why ARC is unusable on CPUs without SSE4.2
 
-ARC compila `zygote`, la libreria ART e i servizi di sistema con
-`-msse4.2 -mpopcnt`. Su Intel Pentium P6100, Celeron P4500 o Core di prima generazione
-(Arrandale) la prima istruzione `PCMPISTRI` o `CRC32` genera `#UD`, il kernel consegna
-`SIGILL` e `zygote` muore. Poiché `zygote` è il processo padre di ogni applicazione Android,
-il framework riavvia il container all'infinito: il ciclo osservato è
-`arc-start → zygote crash → restart → arc-stop`, con saturazione della CPU e log pieni di
+ARC compiles `zygote`, the ART library and the system services with
+`-msse4.2 -mpopcnt`. On Intel Pentium P6100, Celeron P4500 or first-generation Core
+(Arrandale) the first `PCMPISTRI` or `CRC32` instruction raises `#UD`, the kernel delivers
+`SIGILL` and `zygote` dies. Since `zygote` is the parent process of every Android
+application, the framework restarts the container forever: the observed cycle is
+`arc-start → zygote crash → restart → arc-stop`, with CPU saturation and logs full of
 `Fatal signal 4 (SIGILL)`.
 
-Non esiste alcuna contromisura a livello di policy o di configurazione di ARC: il problema è
-nel codice già compilato. L'unica soluzione è un container Android compilato per un ISA
-inferiore — cioè Waydroid con immagini x86 a floor SSE4.1 — più la rimozione completa di ARC
-dal sistema (USE negativi, `use.mask`, policy, `--arc-availability=none`).
+No countermeasure exists at policy or ARC configuration level: the problem is in the
+already-compiled code. The only solution is an Android container compiled for a lower ISA
+— that is, Waydroid with x86 images at SSE4.1 floor — plus the complete removal of ARC
+from the system (negative USE, `use.mask`, policies, `--arc-availability=none`).
 
-## 2. Scelta delle immagini
+## 2. Image selection
 
-| Parametro | Valore | Motivazione |
+| Parameter | Value | Reason |
 |---|---|---|
-| Distribuzione | LineageOS 16.0 (Android 9, API 28) | ultima release per cui esistono immagini Waydroid **x86 a 32 bit**; le release più recenti sono pubblicate solo x86_64 |
-| Architettura | **x86 (32 bit)** | le immagini x86_64 ufficiali sono compilate con SSE4.2 e POPCNT |
-| `vendor_type` | `MAINLINE` | il kernel ospite (6.1) fornisce binderfs e ashmem: non serve il secondo kernel Halium |
-| `gralloc` | `minigbm` | allocazione buffer compatibile con il compositore Exo di ChromeOS |
-| Variante | `VANILLA` | niente GApps: su una flotta scolastica i servizi Google vanno distribuiti come applicazioni web, non come framework Android |
-| Traduzione ARM | **disattivata** | libhoudini e libndk_translation richiedono SSE4.2/POPCNT |
-| ABI esposte | `x86,armeabi-v7a,armeabi` | `abilist64` vuota: nessuna applicazione a 64 bit può essere installata |
+| Distribution | LineageOS 16.0 (Android 9, API 28) | last release for which Waydroid **32-bit x86** images exist; newer releases are published x86_64 only |
+| Architecture | **x86 (32-bit)** | official x86_64 images are compiled with SSE4.2 and POPCNT |
+| `vendor_type` | `MAINLINE` | the host kernel (6.1) provides binderfs and ashmem: no second Halium kernel needed |
+| `gralloc` | `minigbm` | buffer allocation compatible with ChromeOS's Exo compositor |
+| Variant | `VANILLA` | no GApps: on a school fleet Google services must be distributed as web applications, not as an Android framework |
+| ARM translation | **disabled** | libhoudini and libndk_translation require SSE4.2/POPCNT |
+| Exposed ABI | `x86,armeabi-v7a,armeabi` | empty `abilist64`: no 64-bit application can be installed |
 
-Conseguenza pratica: sono installabili solo le applicazioni Android distribuite con librerie
-native x86 oppure pure-Java/Kotlin. Per questo `profiles/app_pool.json` seleziona pacchetti
-F-Droid (F-Droid, VLC, NewPipe, AnkiDroid, OsmAnd, K-9 Mail) e dichiara per ciascuno
-`arm_translation_required: false` e l'elenco `abi` realmente disponibile.
+Practical consequence: only Android applications shipped with native x86 libraries or
+pure Java/Kotlin are installable. For this reason `profiles/app_pool.json` selects F-Droid
+packages (F-Droid, VLC, NewPipe, AnkiDroid, OsmAnd, K-9 Mail) and declares for each of them
+`arm_translation_required: false` and the actually available `abi` list.
 
 ## 3. Provisioning
 
-`scripts/provision_waydroid_image.sh` è lo strumento unico per ottenere immagini conformi.
+`scripts/provision_waydroid_image.sh` is the single tool to obtain conforming images.
 
 ```bash
-# mirror prismOS (raccomandato: immagini 16.0 x86 ricostruite a floor SSE4.1)
+# prismOS mirror (recommended: 16.0 x86 images rebuilt at SSE4.1 floor)
 sudo ./scripts/provision_waydroid_image.sh --edition slim
 
-# SourceForge upstream (richiede --date o --query-latest; usare sempre --deep-verify)
+# upstream SourceForge (requires --date or --query-latest; always use --deep-verify)
 ./scripts/provision_waydroid_image.sh --edition home --source upstream --query-latest --deep-verify
 
-# archivio già scaricato
+# already downloaded archive
 sudo ./scripts/provision_waydroid_image.sh --edition work \
      --source local --archive ~/lineage-16.0-waydroid_x86.zip
 
-# compilazione da un checkout LineageOS
+# compilation from a LineageOS checkout
 sudo ./scripts/provision_waydroid_image.sh --edition edu --build \
      --source-dir ~/lineageos-16.0 --jobs 4
 ```
 
-Le fasi sono: scaricamento con ripresa e verifica SHA-256 (curl/wget), estrazione
-(zip/tar/xz/img), installazione di `system.img` e `vendor.img` in `/var/lib/waydroid/images`,
-installazione delle proprietà ART, verifica dell'ABI, scrittura del marcatore `ISA_FLOOR`.
-Con `--deep-verify` l'immagine di sistema viene montata in sola lettura via `losetup` e
-scandita da `scripts/verify_legacy_cpu.sh --rootfs --full`.
+The phases are: download with resume and SHA-256 verification (curl/wget), extraction
+(zip/tar/xz/img), installation of `system.img` and `vendor.img` into
+`/var/lib/waydroid/images`, installation of the ART properties, ABI verification, writing
+of the `ISA_FLOOR` marker. With `--deep-verify` the system image is mounted read-only via
+`losetup` and scanned by `scripts/verify_legacy_cpu.sh --rootfs --full`.
 
-Schema degli URL upstream (SourceForge, progetto `waydroid`):
+Upstream URL scheme (SourceForge, project `waydroid`):
 
 ```
 https://sourceforge.net/projects/waydroid/files/images/system/lineage/waydroid_x86/
-    lineage-<versione>-<AAAAMMGG>-<VANILLA|GAPPS>-waydroid_x86-system.zip/download
+    lineage-<version>-<YYYYMMDD>-<VANILLA|GAPPS>-waydroid_x86-system.zip/download
 https://sourceforge.net/projects/waydroid/files/images/vendor/waydroid_x86/
-    lineage-<versione>-<AAAAMMGG>-MAINLINE-waydroid_x86-vendor.zip/download
+    lineage-<version>-<YYYYMMDD>-MAINLINE-waydroid_x86-vendor.zip/download
 ```
 
-Il mirror prismOS (`--source prismos`, predefinito) ospita la ricostruzione 16.0 x86 con
-estensioni `.img.xz` e i relativi `.sha256`; l'indirizzo si sovrascrive con `--mirror`.
+The prismOS mirror (`--source prismos`, default) hosts the 16.0 x86 rebuild with
+`.img.xz` extensions and the related `.sha256`; the address can be overridden with
+`--mirror`.
 
-### 3.1 Proprietà ART del floor ISA
+### 3.1 ART properties of the ISA floor
 
-Le proprietà sono generate a partire dai template del pacchetto
-`app-emulation/prismos-waydroid-config` e sovrascritte per l'edizione:
+Properties are generated from the templates of the package
+`app-emulation/prismos-waydroid-config` and overridden per edition:
 
 ```
 ro.product.cpu.abilist=x86,armeabi-v7a,armeabi
@@ -93,46 +94,47 @@ dalvik.vm.isa.x86_64.variant=x86_64
 dalvik.vm.isa.x86_64.features=
 ro.dalvik.vm.native.bridge=0
 ro.enable.native.bridge.exec=0
-ro.config.low_ram=true            (Slim ed EDU)
+ro.config.low_ram=true            (Slim and EDU)
 ro.zygote=zygote32
 ```
 
-`variant` seleziona il sottoinsieme ISA che `dex2oat` assume come baseline per il codice
-generato AOT: i valori `nehalem`, `sandybridge`, `ivybridge` e `haswell` implicano SSE4.2 e
-POPCNT e **non devono mai essere usati**. La lista esplicita delle feature aggiunge SSE4.1 e
-nega tutto il resto, così il comportamento non dipende dal CPUID visibile al container (che
-su alcuni die Arrandale riporta comunque SSE4.2).
+`variant` selects the ISA subset that `dex2oat` assumes as baseline for AOT-generated
+code: the values `nehalem`, `sandybridge`, `ivybridge` and `haswell` imply SSE4.2 and
+POPCNT and **must never be used**. The explicit feature list adds SSE4.1 and negates
+everything else, so behaviour does not depend on the CPUID visible to the container
+(which on some Arrandale dies reports SSE4.2 anyway).
 
-### 3.2 Budget di memoria per edizione
+### 3.2 Memory budget per edition
 
-| Edizione | `heapgrowthlimit` | `heapsize` | `dex2oat-threads` | `dex2oat-filter` |
+| Edition | `heapgrowthlimit` | `heapsize` | `dex2oat-threads` | `dex2oat-filter` |
 |---|---|---|---|---|
 | EDU | 192 MiB | 384 MiB | 1 | `verify` |
 | Home | 256 MiB | 512 MiB | 2 | `speed-profile` |
 | Work | 192 MiB | 384 MiB | 2 | `speed-profile` |
 | Slim | 128 MiB | 256 MiB | 1 | `verify` |
 
-Il filtro `verify` rinuncia alla compilazione AOT del codice applicativo: `dex2oat` produce
-solo metadati verificati e l'esecuzione resta interpretata/JIT. Su 2 core e 1 GB è la scelta
-che mantiene reattivo il sistema ospite; il costo è un avvio più lento delle applicazioni.
+The `verify` filter renounces AOT compilation of application code: `dex2oat` produces only
+verified metadata and execution stays interpreted/JIT. On 2 cores and 1 GB this is the
+choice that keeps the host system responsive; the cost is a slower first start of
+applications.
 
-### 3.3 Marcatore `ISA_FLOOR`
+### 3.3 The `ISA_FLOOR` marker
 
-`/var/lib/waydroid/images/ISA_FLOOR` dichiara il floor delle immagini installate:
+`/var/lib/waydroid/images/ISA_FLOOR` declares the floor of the installed images:
 
 ```
 PRISMOS_ISA_FLOOR="x86-SSE4.1"
 PRISMOS_ISA_FORBIDDEN="sse4_2 popcnt avx avx2"
 ```
 
-`prismos-waydroid-prepare` lo legge prima di avviare il container: se dichiara un ISA
-superiore a SSE4.1 l'avvio è **rifiutato**; se è assente l'avvio è rifiutato a meno di
-`PRISMOS_ALLOW_UNVERIFIED_IMAGES=1`. È la protezione contro il caso più frequente di
-regressione: un aggiornamento che reinstalla le immagini ufficiali Waydroid.
+`prismos-waydroid-prepare` reads it before starting the container: if it declares an ISA
+above SSE4.1 the start is **refused**; if it is missing the start is refused unless
+`PRISMOS_ALLOW_UNVERIFIED_IMAGES=1`. It is the protection against the most frequent
+regression: an update reinstalling the official Waydroid images.
 
-## 4. Configurazione del container
+## 4. Container configuration
 
-`/var/lib/waydroid/waydroid.cfg`, installato dal pacchetto:
+`/var/lib/waydroid/waydroid.cfg`, installed by the package:
 
 ```ini
 [properties]
@@ -161,11 +163,11 @@ macaddr = 00:16:3e:0a:d0:53
 no_overlay = False
 ```
 
-`system_ota = 0` disattiva gli aggiornamenti OTA: le immagini sono gestite esclusivamente da
-`provision_waydroid_image.sh`, che è l'unico punto in cui il floor ISA viene garantito.
+`system_ota = 0` disables OTA updates: images are managed exclusively by
+`provision_waydroid_image.sh`, which is the only place where the ISA floor is guaranteed.
 
-La configurazione LXC generata da `prismos-waydroid-prepare` clona **solo** i namespace
-`ipc`, `uts`, `net` e `mount`:
+The LXC configuration generated by `prismos-waydroid-prepare` clones **only** the `ipc`,
+`uts`, `net` and `mount` namespaces:
 
 ```ini
 lxc.namespace.clone = ipc uts net mount
@@ -174,11 +176,11 @@ lxc.cgroup2.memory.max = 1024M
 lxc.cgroup2.cpuset.cpus = 0-1
 ```
 
-Il PID namespace non è clonato deliberatamente: i processi Android restano visibili
-dall'ospite, ed è ciò che permette a `prismos-slim-launcher` di seguirne il PID e di
-terminarli alla chiusura dell'applicazione.
+The PID namespace is deliberately not cloned: Android processes remain visible from the
+host, and that is what allows `prismos-slim-launcher` to follow their PID and terminate
+them when the application closes.
 
-## 5. Ciclo di vita
+## 5. Lifecycle
 
 ### 5.1 `prismos-waydroid-container.service`
 
@@ -197,30 +199,30 @@ Delegate=yes
 MemoryHigh=768M  MemoryMax=1024M  MemorySwapMax=256M  TasksMax=1024
 ```
 
-`Delegate=yes` è necessario perché LXC gestisca la propria gerarchia di cgroup all'interno
-dello slice; `StartLimitBurst=3` in 180 s impedisce che un container difettoso entri in un
-ciclo di riavvio.
+`Delegate=yes` is necessary for LXC to manage its own cgroup hierarchy inside the slice;
+`StartLimitBurst=3` in 180 s prevents a defective container from entering a reboot cycle.
 
 ### 5.2 `prismos-waydroid-prepare`
 
-Sequenza eseguita come root prima dell'avvio:
+Sequence executed as root before start:
 
-1. `setup_binder` — carica `binder_linux`, monta binderfs in `/dev/binderfs`, crea i nodi
-   `binder`, `vndbinder`, `hwbinder`; se binderfs non è disponibile ripiega sul nodo statico
-   `/dev/binder`, altrimenti termina con un messaggio che rimanda ad `android.config`;
-2. `setup_ashmem` — carica `ashmem_linux` se presente, altrimenti registra il fallback
-   `memfd` (kernel ≥ 5.18 non richiede più ashmem);
-3. `setup_network` — crea il bridge `waydroid0`, assegna `192.168.240.1/24`, abilita
-   `ip_forward`, installa le regole NAT quando `iptables` è disponibile (in ChromeOS può
-   essere limitato: il container usa allora DNS e proxy dell'ospite);
-4. `setup_dirs` — verifica `system.img`, `vendor.img` e il marcatore `ISA_FLOOR`;
-5. genera `/var/lib/waydroid/lxc/waydroid/config` se assente (non sovrascrive mai una
-   configurazione esistente);
-6. `write_session_env` — individua il socket Wayland di Exo e scrive
-   `/run/prismos/waydroid-<uid>.env`; senza socket la sessione Ash non è attiva e l'avvio
-   viene rifiutato con spiegazione;
-7. `verify_host_isa` — conferma che la CPU ospite abbia almeno SSE4.1 e registra nel log la
-   scelta deliberata di usare immagini a floor SSE4.1 anche su CPU più recenti.
+1. `setup_binder` — loads `binder_linux`, mounts binderfs at `/dev/binderfs`, creates the
+   `binder`, `vndbinder`, `hwbinder` nodes; if binderfs is unavailable it falls back to the
+   static node `/dev/binder`, otherwise it terminates with a message pointing to
+   `android.config`;
+2. `setup_ashmem` — loads `ashmem_linux` if present, otherwise registers the `memfd`
+   fallback (kernel ≥ 5.18 no longer requires ashmem);
+3. `setup_network` — creates the `waydroid0` bridge, assigns `192.168.240.1/24`, enables
+   `ip_forward`, installs NAT rules when `iptables` is available (on ChromeOS it may be
+   restricted: the container then uses the host's DNS and proxy);
+4. `setup_dirs` — verifies `system.img`, `vendor.img` and the `ISA_FLOOR` marker;
+5. generates `/var/lib/waydroid/lxc/waydroid/config` if missing (never overwrites an
+   existing configuration);
+6. `write_session_env` — locates the Exo Wayland socket and writes
+   `/run/prismos/waydroid-<uid>.env`; without a socket the Ash session is not active and
+   the start is refused with an explanation;
+7. `verify_host_isa` — confirms the host CPU has at least SSE4.1 and records in the log
+   the deliberate choice of using SSE4.1-floor images even on newer CPUs.
 
 ### 5.3 `prismos-waydroid-session@<uid>.service`
 
@@ -236,43 +238,44 @@ ExecStop=/usr/bin/waydroid session stop
 Restart=on-failure  RestartSec=5  TimeoutStartSec=90  OOMPolicy=stop
 ```
 
-`BindsTo` garantisce che l'arresto del container arresti anche la sessione, e
-`StopWhenUnneeded` che la sessione si spenga quando nessun client la richiede: è il
-meccanismo su cui si basa il teardown on-demand di Slim.
+`BindsTo` guarantees that stopping the container also stops the session, and
+`StopWhenUnneeded` that the session turns off when no client requires it: it is the
+mechanism on which Slim's on-demand teardown relies.
 
-### 5.4 Avvio manuale e per edizione
+### 5.4 Manual and per-edition start
 
-| Edizione | Comportamento |
+| Edition | Behaviour |
 |---|---|
-| EDU, Home | `prismos-firstboot` abilita `prismos-subsystems.target` e il container: Waydroid parte al boot |
-| Work, Slim | il container è installato ma disabilitato; parte su apertura di un `.apk`/`.xapk` |
-| Tutte | `systemctl start prismos-waydroid-container.service` resta disponibile; in Slim è mediato da `prismos-slim-launcher` |
+| EDU, Home | `prismos-firstboot` enables `prismos-subsystems.target` and the container: Waydroid starts at boot |
+| Work, Slim | the container is installed but disabled; it starts upon opening an `.apk`/`.xapk` |
+| PRO | follows the edition chosen at first setup |
+| All | `systemctl start prismos-waydroid-container.service` remains available; on Slim it is mediated by `prismos-slim-launcher` |
 
-Lancio di un'applicazione specifica:
+Launching a specific application:
 
 ```bash
 waydroid app launch org.fdroid.fdroid/org.fdroid.fdroid.views.main.MainActivity
 /usr/bin/prismos-slim-launcher start waydroid --apk /home/chronos/Downloads/app.apk
 ```
 
-## 6. Requisiti del kernel
+## 6. Kernel requirements
 
-Frammento `kernel/chromeos/config/chromiumos-x86_64/prismos_legacy/android.config`:
+Fragment `kernel/chromeos/config/chromiumos-x86_64/prismos_legacy/android.config`:
 
 ```
 CONFIG_ANDROID=y
 CONFIG_ANDROID_BINDER_IPC=y
 CONFIG_ANDROID_BINDERFS=y
 CONFIG_ANDROID_BINDER_DEVICES="binder,hwbinder,vndbinder"
-CONFIG_ASHMEM=y                     (o fallback memfd su kernel >= 5.18)
+CONFIG_ASHMEM=y                     (or memfd fallback on kernel >= 5.18)
 CONFIG_NAMESPACES=y
 CONFIG_CGROUPS=y / CONFIG_CGROUP_SCHED=y / CONFIG_MEMCG=y
 CONFIG_DMA_SHARED_BUFFER=y
-CONFIG_NETFILTER / NF_NAT           (bridge e NAT per waydroid0)
+CONFIG_NETFILTER / NF_NAT           (bridge and NAT for waydroid0)
 CONFIG_TUN=y
 ```
 
-Verifica a sistema avviato:
+Verification on a booted system:
 
 ```bash
 zcat /proc/config.gz | grep -E 'ANDROID_BINDER|BINDERFS|ASHMEM'
@@ -280,18 +283,18 @@ mount | grep binderfs
 ls -l /dev/binderfs
 ```
 
-## 7. Diagnosi
+## 7. Diagnostics
 
-| Sintomo | Causa | Rimedio |
+| Symptom | Cause | Remedy |
 |---|---|---|
-| `SIGILL` in `zygote`, container in riavvio continuo | immagini x86_64 o `dalvik.vm.isa.x86.variant=nehalem` | `provision_waydroid_image.sh --force` con sorgente x86; controllare `ISA_FLOOR` e le proprietà ART |
-| `binder: failed to open binder driver` | binderfs non abilitato o non montato | verificare `android.config`; `modprobe binder_linux`; `mount -t binder binder /dev/binderfs` |
-| `no wayland socket` | sessione Ash non ancora attiva | la sessione richiede `ui.target`; riavviare dopo l'accesso o usare `prismos-slim-launcher start waydroid` |
-| Applicazione ARM-only non si installa | `arm_translation_required` | comportamento atteso: la traduzione ARM richiede SSE4.2; usare l'equivalente web o un pacchetto F-Droid x86 |
-| Container lento al primo avvio | `dex2oat` con filtro `verify` su 2 core | attesa prevista al primo avvio delle applicazioni; non aumentare `dex2oat-threads` oltre 2 |
-| Video fluido solo a 720p dentro il container | SwiftShader su Gen5 | `gralloc=minigbm` + rendering software: il container non usa la GPU ospite per il 3D |
-| `MemoryMax` raggiunto, applicazioni uccise | budget del container | alzare `MemoryMax` solo con ≥ 3 GB di RAM; in Slim è volutamente 1024M |
-| OTA aggiorna le immagini e il container smette di avviarsi | `system_ota` riattivato | reimpostare `system_ota = 0` in `waydroid.cfg` e rieseguire il provisioning |
+| `SIGILL` in `zygote`, container rebooting continuously | x86_64 images or `dalvik.vm.isa.x86.variant=nehalem` | `provision_waydroid_image.sh --force` with an x86 source; check `ISA_FLOOR` and the ART properties |
+| `binder: failed to open binder driver` | binderfs not enabled or not mounted | check `android.config`; `modprobe binder_linux`; `mount -t binder binder /dev/binderfs` |
+| `no wayland socket` | Ash session not yet active | the session requires `ui.target`; restart after login or use `prismos-slim-launcher start waydroid` |
+| ARM-only application does not install | `arm_translation_required` | expected behaviour: ARM translation requires SSE4.2; use the web equivalent or an x86 F-Droid package |
+| Container slow at first start | `dex2oat` with `verify` filter on 2 cores | expected wait at first start of applications; do not raise `dex2oat-threads` above 2 |
+| Video fluid only at 720p inside the container | SwiftShader on Gen5 | `gralloc=minigbm` + software rendering: the container does not use the host GPU for 3D |
+| `MemoryMax` reached, applications killed | container budget | raise `MemoryMax` only with ≥ 3 GB of RAM; on Slim it is deliberately 1024M |
+| OTA updates the images and the container stops starting | `system_ota` re-enabled | reset `system_ota = 0` in `waydroid.cfg` and re-run provisioning |
 
-Log utili: `journalctl -t prismos-waydroid`, `/var/log/prismos/waydroid-lxc.log`,
-`logcat` interno al container (`waydroid shell -- logcat`).
+Useful logs: `journalctl -t prismos-waydroid`, `/var/log/prismos/waydroid-lxc.log`,
+internal `logcat` (`waydroid shell -- logcat`).

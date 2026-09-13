@@ -36,7 +36,15 @@
       "flags_source": "/etc/default/chromium-browser",
       "gpu": "Intel HD Graphics Gen5 (Ironlake) via ANGLE/OpenGL ES 2.0, driver Mesa crocus",
       "drm": "Widevine CDM L3 (720p su Netflix/Prime)",
-      "codecs": ["h264", "aac", "mp3", "opus", "vp8", "vp9", "av1 (software dav1d)"]
+      "codecs": [
+        "h264",
+        "aac",
+        "mp3",
+        "opus",
+        "vp8",
+        "vp9",
+        "av1 (software dav1d)"
+      ]
     },
     "android": {
       "container": "LXC su binderfs",
@@ -44,7 +52,9 @@
       "images_path": "/var/lib/waydroid/images",
       "unit_container": "prismos-waydroid-container.service",
       "unit_session": "prismos-waydroid-session@1000.service",
-      "abi_supported": ["x86"],
+      "abi_supported": [
+        "x86"
+      ],
       "arm_translation": false,
       "notes": "Sostituisce integralmente ARC/ARC++/ARCVM di Google e FydeOS, che richiedono SSE4.2+POPCNT e su Intel Pentium P6100 entrano in un loop infinito di riavvio del container."
     },
@@ -55,7 +65,10 @@
       "d3d_backend": "wined3d (OpenGL 2.1)",
       "dxvk_available": false,
       "dxvk_reason": "Intel HD Graphics Gen5 non ha alcun driver Vulkan (anv parte da Gen8/Skylake)",
-      "arch_supported": ["win32", "win64"],
+      "arch_supported": [
+        "win32",
+        "win64"
+      ],
       "frontend": "prismos-wine-run (CLI) + prismos-slim-launcher (on-demand)"
     }
   },
@@ -76,7 +89,11 @@
       "offline_capable": false,
       "min_ram_mb": 512,
       "sse42_required": false,
-      "flavors": ["edu", "home", "work"],
+      "flavors": [
+        "edu",
+        "home",
+        "work"
+      ],
       "alternatives": [],
       "notes": "App didattica principale della edizione EDU; con la Strada A viene associata all'account istituzionale @[scuola].edu tramite Enterprise Enrollment."
     },
@@ -96,8 +113,15 @@
       "offline_capable": true,
       "min_ram_mb": 384,
       "sse42_required": false,
-      "flavors": ["edu", "home", "work", "slim"],
-      "alternatives": ["win-notepadpp"],
+      "flavors": [
+        "edu",
+        "home",
+        "work",
+        "slim"
+      ],
+      "alternatives": [
+        "win-notepadpp"
+      ],
       "notes": "Unica app del pool abilitata anche nella edizione Slim: il footprint della PWA resta sotto i 200 MB."
     },
     {
@@ -116,8 +140,14 @@
       "offline_capable": false,
       "min_ram_mb": 768,
       "sse42_required": false,
-      "flavors": ["edu", "home", "work"],
-      "alternatives": ["zoom"],
+      "flavors": [
+        "edu",
+        "home",
+        "work"
+      ],
+      "alternatives": [
+        "zoom"
+      ],
       "notes": "Decodifica VP8/VP9 in software (dav1d con path SIMD SSE4.1): su Ironlake la VA-API non accelera VP9, quindi Meet a 720p occupa un core."
     },
     {
@@ -136,7 +166,11 @@
       "offline_capable": false,
       "min_ram_mb": 768,
       "sse42_required": false,
-      "flavors": ["edu", "home", "work"],
+      "flavors": [
+        "edu",
+        "home",
+        "work"
+      ],
       "alternatives": [],
       "notes": "L'editor usa WebGL: con Intel HD Graphics Gen5 e' necessario il flag --enable-features=CanvasOopRasterization, gia' presente in make.conf."
     },
@@ -156,7 +190,10 @@
       "offline_capable": true,
       "min_ram_mb": 640,
       "sse42_required": false,
-      "flavors": ["edu", "home"],
+      "flavors": [
+        "edu",
+        "home"
+      ],
       "alternatives": [],
       "notes": "Suite completa (Grafici, CAS, Geometria 3D). La vista 3D richiede WebGL 1: disponibile su Gen5 tramite ANGLE."
     },
@@ -176,8 +213,15 @@
       "offline_capable": false,
       "min_ram_mb": 512,
       "sse42_required": false,
-      "flavors": ["home", "edu", "work", "slim"],
-      "alternatives": ["android-newpipe"],
+      "flavors": [
+        "home",
+        "edu",
+        "work",
+        "slim"
+      ],
+      "alternatives": [
+        "android-newpipe"
+      ],
       "notes": "Bloccata dalla policy della edizione EDU Strada B (URLBlocklist). Codec consigliato: VP9/AV1 in software, risoluzione massima 720p su Ironlake."
     },
     {
@@ -197,7 +241,9 @@
       "min_ram_mb": 768,
       "sse42_required": false,
       "drm": "widevine-l3",
-      "flavors": ["home"],
+      "flavors": [
+        "home"
+      ],
       "alternatives": [],
       "notes": "Richiede USE=widevine e USE=branded-chromium: il CDM Widevine L3 limita lo streaming a 720p, che e' comunque il massimo sensato su un pannello 1366x768."
     },
@@ -217,8 +263,14 @@
       "offline_capable": false,
       "min_ram_mb": 384,
       "sse42_required": false,
-      "flavors": ["home", "work", "slim"],
-      "alternatives": ["android-vlc"],
+      "flavors": [
+        "home",
+        "work",
+        "slim"
+      ],
+      "alternatives": [
+        "android-vlc"
+      ],
       "notes": "Il player web usa AAC-LC via Media Source Extensions; USE=aac deve essere attivo nel profilo."
     },
     {
@@ -237,7 +289,11 @@
       "offline_capable": true,
       "min_ram_mb": 512,
       "sse42_required": false,
-      "flavors": ["home", "work", "slim"],
+      "flavors": [
+        "home",
+        "work",
+        "slim"
+      ],
       "alternatives": [],
       "notes": "Richiede la scansione del QR dal telefono al primo avvio; la sessione resta accoppiata nel profilo utente."
     },
@@ -257,7 +313,9 @@
       "offline_capable": false,
       "min_ram_mb": 1024,
       "sse42_required": false,
-      "flavors": ["home"],
+      "flavors": [
+        "home"
+      ],
       "alternatives": [],
       "notes": "Il rendering avviene nel cloud: l'hardware locale deve solo decodificare H.264/HEVC e gestire gamepad e tastiera. Su 2 GB di RAM usare la risoluzione 720p60."
     },
@@ -277,8 +335,13 @@
       "offline_capable": false,
       "min_ram_mb": 768,
       "sse42_required": false,
-      "flavors": ["work", "edu"],
-      "alternatives": ["win-vscode"],
+      "flavors": [
+        "work",
+        "edu"
+      ],
+      "alternatives": [
+        "win-vscode"
+      ],
       "notes": "Portale unico del tenant (Word, Excel, PowerPoint, Teams, OneDrive). Nella edizione Work il dominio tenant viene vincolato dalla policy."
     },
     {
@@ -297,8 +360,13 @@
       "offline_capable": true,
       "min_ram_mb": 512,
       "sse42_required": false,
-      "flavors": ["work", "edu"],
-      "alternatives": ["android-k9mail"],
+      "flavors": [
+        "work",
+        "edu"
+      ],
+      "alternatives": [
+        "android-k9mail"
+      ],
       "notes": "Outlook Web con cache offline: su macchine con 2 GB conviene disattivare l'indicizzazione della cassetta postale completa."
     },
     {
@@ -317,8 +385,14 @@
       "offline_capable": false,
       "min_ram_mb": 768,
       "sse42_required": false,
-      "flavors": ["work", "home", "edu"],
-      "alternatives": ["win-zoom"],
+      "flavors": [
+        "work",
+        "home",
+        "edu"
+      ],
+      "alternatives": [
+        "win-zoom"
+      ],
       "notes": "Il client web richiede la condivisione dello schermo tramite getDisplayMedia, disponibile in Chromium senza plugin."
     },
     {
@@ -337,7 +411,9 @@
       "offline_capable": true,
       "min_ram_mb": 640,
       "sse42_required": false,
-      "flavors": ["work"],
+      "flavors": [
+        "work"
+      ],
       "alternatives": [],
       "notes": "Le chiamate Huddles usano WebRTC con codec Opus: nessun requisito di decodifica hardware."
     },
@@ -357,8 +433,14 @@
       "offline_capable": true,
       "min_ram_mb": 512,
       "sse42_required": false,
-      "flavors": ["work", "slim", "edu"],
-      "alternatives": ["win-vscode"],
+      "flavors": [
+        "work",
+        "slim",
+        "edu"
+      ],
+      "alternatives": [
+        "win-vscode"
+      ],
       "notes": "Editor completo nel browser, con accesso al filesystem locale tramite File System Access API. Nella edizione EDU e' lo strumento per i corsi di informatica."
     },
     {
@@ -376,7 +458,10 @@
       "android_activity": "org.fdroid.fdroid.views.main.MainActivity",
       "source": "fdroid",
       "source_index": "https://f-droid.org/repo/index-v2.json",
-      "abi": ["x86", "x86_64"],
+      "abi": [
+        "x86",
+        "x86_64"
+      ],
       "arm_translation_required": false,
       "min_android_api": 21,
       "app_window": true,
@@ -384,7 +469,12 @@
       "offline_capable": true,
       "min_ram_mb": 512,
       "sse42_required": false,
-      "flavors": ["edu", "home", "work", "slim"],
+      "flavors": [
+        "edu",
+        "home",
+        "work",
+        "slim"
+      ],
       "alternatives": [],
       "notes": "Repository delle app Android con ABI x86 nativa: e' l'unico canale sicuro per prismOS, perche' libhoudini e libndk_translation richiedono SSE4.2/POPCNT."
     },
@@ -403,7 +493,10 @@
       "android_activity": "org.videolan.vlc.StartActivity",
       "source": "fdroid",
       "source_index": "https://f-droid.org/repo/index-v2.json",
-      "abi": ["x86", "x86_64"],
+      "abi": [
+        "x86",
+        "x86_64"
+      ],
       "arm_translation_required": false,
       "min_android_api": 17,
       "app_window": true,
@@ -411,8 +504,14 @@
       "offline_capable": true,
       "min_ram_mb": 384,
       "sse42_required": false,
-      "flavors": ["home", "edu"],
-      "alternatives": ["netflix", "youtube"],
+      "flavors": [
+        "home",
+        "edu"
+      ],
+      "alternatives": [
+        "netflix",
+        "youtube"
+      ],
       "notes": "Riproduzione locale di file multimediali dentro il container Waydroid; la decodifica avviene in software con le path SIMD SSE2/SSE4.1 di libvlc."
     },
     {
@@ -430,7 +529,10 @@
       "android_activity": "org.schabi.newpipe.MainActivity",
       "source": "fdroid",
       "source_index": "https://f-droid.org/repo/index-v2.json",
-      "abi": ["x86", "x86_64"],
+      "abi": [
+        "x86",
+        "x86_64"
+      ],
       "arm_translation_required": false,
       "min_android_api": 21,
       "app_window": true,
@@ -438,8 +540,12 @@
       "offline_capable": true,
       "min_ram_mb": 320,
       "sse42_required": false,
-      "flavors": ["home"],
-      "alternatives": ["youtube"],
+      "flavors": [
+        "home"
+      ],
+      "alternatives": [
+        "youtube"
+      ],
       "notes": "Frontend video leggero: su macchine con meno di 2 GB consuma un terzo della RAM rispetto alla web app equivalente."
     },
     {
@@ -457,7 +563,10 @@
       "android_activity": "com.ichi2.anki.IntentHandler",
       "source": "fdroid",
       "source_index": "https://f-droid.org/repo/index-v2.json",
-      "abi": ["x86", "x86_64"],
+      "abi": [
+        "x86",
+        "x86_64"
+      ],
       "arm_translation_required": false,
       "min_android_api": 21,
       "app_window": true,
@@ -465,7 +574,9 @@
       "offline_capable": true,
       "min_ram_mb": 256,
       "sse42_required": false,
-      "flavors": ["edu"],
+      "flavors": [
+        "edu"
+      ],
       "alternatives": [],
       "notes": "Ripetizione spaziata per lo studio; i mazzi sono sincronizzabili con AnkiWeb e restano utilizzabili offline."
     },
@@ -484,7 +595,10 @@
       "android_activity": "net.osmand.plus.activities.MapActivity",
       "source": "fdroid",
       "source_index": "https://f-droid.org/repo/index-v2.json",
-      "abi": ["x86", "x86_64"],
+      "abi": [
+        "x86",
+        "x86_64"
+      ],
       "arm_translation_required": false,
       "min_android_api": 21,
       "app_window": true,
@@ -492,7 +606,10 @@
       "offline_capable": true,
       "min_ram_mb": 512,
       "sse42_required": false,
-      "flavors": ["home", "work"],
+      "flavors": [
+        "home",
+        "work"
+      ],
       "alternatives": [],
       "notes": "Navigazione offline con mappe OpenStreetMap scaricate nel container; utile nei laboratori senza connettivita'."
     },
@@ -511,7 +628,10 @@
       "android_activity": "com.fsck.k9.activity.MessageList",
       "source": "fdroid",
       "source_index": "https://f-droid.org/repo/index-v2.json",
-      "abi": ["x86", "x86_64"],
+      "abi": [
+        "x86",
+        "x86_64"
+      ],
       "arm_translation_required": false,
       "min_android_api": 21,
       "app_window": true,
@@ -519,8 +639,13 @@
       "offline_capable": true,
       "min_ram_mb": 256,
       "sse42_required": false,
-      "flavors": ["work", "slim"],
-      "alternatives": ["outlook"],
+      "flavors": [
+        "work",
+        "slim"
+      ],
+      "alternatives": [
+        "outlook"
+      ],
       "notes": "Client IMAP/SMTP nativo: alternativa a basso consumo rispetto alla webmail quando la RAM disponibile e' inferiore a 1 GB."
     },
     {
@@ -536,17 +661,30 @@
       "color": "#90C53F",
       "wine_prefix": "Default",
       "wine_arch": "win32",
-      "installer_args": ["/S"],
+      "installer_args": [
+        "/S"
+      ],
       "post_install_binary": "C:/Program Files/Notepad++/notepad++.exe",
-      "wine_dependencies": ["vcrun2019"],
-      "mime_types": ["text/plain", "application/xml", "application/json"],
+      "wine_dependencies": [
+        "vcrun2019"
+      ],
+      "mime_types": [
+        "text/plain",
+        "application/xml",
+        "application/json"
+      ],
       "app_window": true,
       "requires_signin": false,
       "offline_capable": true,
       "min_ram_mb": 256,
       "sse42_required": false,
-      "flavors": ["work", "slim"],
-      "alternatives": ["vscode-web"],
+      "flavors": [
+        "work",
+        "slim"
+      ],
+      "alternatives": [
+        "vscode-web"
+      ],
       "notes": "Installer NSIS a 32 bit: si avvia con wine (wow64) e il flag /S per l'installazione silenziosa."
     },
     {
@@ -562,7 +700,12 @@
       "color": "#000000",
       "wine_prefix": "Default",
       "wine_arch": "win32",
-      "installer_args": ["msiexec", "/i", "/qn", "/norestart"],
+      "installer_args": [
+        "msiexec",
+        "/i",
+        "/qn",
+        "/norestart"
+      ],
       "post_install_binary": "C:/Program Files/PuTTY/putty.exe",
       "wine_dependencies": [],
       "mime_types": [],
@@ -571,7 +714,9 @@
       "offline_capable": true,
       "min_ram_mb": 128,
       "sse42_required": false,
-      "flavors": ["work"],
+      "flavors": [
+        "work"
+      ],
       "alternatives": [],
       "notes": "Pacchetto MSI: e' il caso d'uso di riferimento per il gestore .msi di prismos-wine-run (msiexec /i)."
     },
@@ -591,13 +736,19 @@
       "installer_args": [],
       "post_install_binary": "",
       "wine_dependencies": [],
-      "mime_types": ["application/x-7z-compressed"],
+      "mime_types": [
+        "application/x-7z-compressed"
+      ],
       "app_window": false,
       "requires_signin": false,
       "offline_capable": true,
       "min_ram_mb": 64,
       "sse42_required": false,
-      "flavors": ["work", "home", "slim"],
+      "flavors": [
+        "work",
+        "home",
+        "slim"
+      ],
       "alternatives": [],
       "notes": "Eseguibile standalone senza installer: utile come verifica rapida del sottosistema Wine (avvio in meno di 3 secondi)."
     },
@@ -614,17 +765,28 @@
       "color": "#2C72B8",
       "wine_prefix": "Default",
       "wine_arch": "win64",
-      "installer_args": ["/VERYSILENT", "/NORESTART", "/MERGETASKS=!runcode"],
+      "installer_args": [
+        "/VERYSILENT",
+        "/NORESTART",
+        "/MERGETASKS=!runcode"
+      ],
       "post_install_binary": "C:/Program Files/Microsoft VS Code/Code.exe",
-      "wine_dependencies": ["corefonts", "vcrun2019"],
+      "wine_dependencies": [
+        "corefonts",
+        "vcrun2019"
+      ],
       "mime_types": [],
       "app_window": true,
       "requires_signin": false,
       "offline_capable": true,
       "min_ram_mb": 1024,
       "sse42_required": false,
-      "flavors": ["work"],
-      "alternatives": ["vscode-web"],
+      "flavors": [
+        "work"
+      ],
+      "alternatives": [
+        "vscode-web"
+      ],
       "notes": "Electron richiede SSE3 (disponibile su Arrandale). Con 2 GB di RAM conviene la variante vscode-web, che non occupa un prefix Wine."
     }
   ],
@@ -651,7 +813,12 @@
         "geogebra",
         "vscode-web"
       ],
-      "blocked_by_policy": ["youtube", "netflix", "geforce-now", "android-newpipe"],
+      "blocked_by_policy": [
+        "youtube",
+        "netflix",
+        "geforce-now",
+        "android-newpipe"
+      ],
       "notes": "Nella Strada B (Local-Policy) le app in blocked_by_policy rientrano in URLBlocklist; nella Strada A il blocco e' demandato alla Google Admin Console del dominio scolastico."
     },
     "home": {
@@ -708,7 +875,11 @@
         "win-putty",
         "win-notepadpp"
       ],
-      "blocked_by_policy": ["netflix", "geforce-now", "youtube"],
+      "blocked_by_policy": [
+        "netflix",
+        "geforce-now",
+        "youtube"
+      ],
       "notes": "Bundle produttivita' aziendale: integrazione Microsoft 365, VPN avanzata tramite shill e cartella Download crittografata (USE=encrypted-dl)."
     },
     "slim": {
@@ -735,6 +906,48 @@
       "blocked_by_policy": [],
       "max_pinned": 6,
       "notes": "Le app Android_Pkg e Windows_Pkg sono SELEZIONABILI ma i relativi sottosistemi restano spenti: vengono avviati da /usr/bin/prismos-slim-launcher solo all'apertura del file e terminati alla chiusura."
+    },
+    "pro": {
+      "display_name": "prismOS Pro (all-in-one)",
+      "description": "Union of the four edition bundles: the image carries everything and the first-setup choice decides what the user sees. Pins are a generalist mix of web, Android and Windows entries.",
+      "preselected": [
+        "google-classroom",
+        "google-drive",
+        "google-meet",
+        "canva",
+        "geogebra",
+        "microsoft-365",
+        "outlook",
+        "vscode-web",
+        "android-ankidroid",
+        "android-fdroid",
+        "youtube",
+        "netflix",
+        "spotify",
+        "whatsapp-web",
+        "geforce-now",
+        "android-vlc",
+        "android-newpipe",
+        "win-7zip",
+        "zoom",
+        "slack",
+        "win-putty",
+        "win-notepadpp",
+        "win-vscode",
+        "android-k9mail"
+      ],
+      "default_pinned": [
+        "google-drive",
+        "youtube",
+        "microsoft-365",
+        "google-meet",
+        "spotify",
+        "android-fdroid",
+        "win-notepadpp",
+        "android-vlc"
+      ],
+      "max_pinned": 10,
+      "blocked_by_policy": []
     }
   },
   "dock_defaults": {
@@ -749,13 +962,33 @@
     "launcher_accelerator": "super+space"
   },
   "validation": {
-    "required_fields": ["id", "name", "type", "launch_url", "icon"],
-    "allowed_types": ["Web_App", "Android_Pkg", "Windows_Pkg"],
-    "allowed_categories": [
-      "education", "productivity", "communication", "creativity", "media",
-      "gaming", "development", "utilities", "system"
+    "required_fields": [
+      "id",
+      "name",
+      "type",
+      "launch_url",
+      "icon"
     ],
-    "uniqueness": ["id", "launch_url"],
+    "allowed_types": [
+      "Web_App",
+      "Android_Pkg",
+      "Windows_Pkg"
+    ],
+    "allowed_categories": [
+      "education",
+      "productivity",
+      "communication",
+      "creativity",
+      "media",
+      "gaming",
+      "development",
+      "utilities",
+      "system"
+    ],
+    "uniqueness": [
+      "id",
+      "launch_url"
+    ],
     "isa_rule": "sse42_required deve essere false per ogni voce: il pool non accetta applicazioni che richiedano SSE4.2 o POPCNT."
   }
 }

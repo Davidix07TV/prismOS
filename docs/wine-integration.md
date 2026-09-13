@@ -1,53 +1,53 @@
-# Integrazione Wine, Proton e Bottles in prismOS
+# Wine, Proton and Bottles integration in prismOS
 
-Esecuzione di applicazioni Windows (`.exe`, `.msi`, `.dll`, `.scr`, `.cpl`, `.com`) dal
-gestore dei file di ChromeOS su hardware legacy: CPU senza SSE4.2 e Intel HD Graphics di
-prima generazione (Ironlake, Gen5).
+Execution of Windows applications (`.exe`, `.msi`, `.dll`, `.scr`, `.cpl`, `.com`) from
+the ChromeOS file manager on legacy hardware: CPUs without SSE4.2 and first-generation
+Intel HD Graphics (Ironlake, Gen5).
 
-Documentazione di riferimento per l'unità `prismos-wine-session@.service` e per i programmi
-`prismos-wine-prepare` e `prismos-wine-run`.
+Reference documentation for the unit `prismos-wine-session@.service` and for the programs
+`prismos-wine-prepare` and `prismos-wine-run`.
 
 ---
 
-## 1. Vincoli dell'hardware e conseguenze
+## 1. Hardware constraints and consequences
 
-| Vincolo | Conseguenza |
+| Constraint | Consequence |
 |---|---|
-| CPU senza SSE4.2/POPCNT/AVX | Wine deve essere compilato con `-march=nehalem -mno-sse4.2 -mno-popcnt`: il pacchetto `wine-staging` eredita i `CFLAGS` di `overlay-prismos-common/make.conf` |
-| Gen5: OpenGL 2.1, **nessun Vulkan** | DXVK e VKD3D-Proton sono inutilizzabili; il backend è `wined3d` con GLSL e Shader Model 3 |
-| Gen5: driver Mesa `crocus` (non `iris`, non `zink`) | `MESA_LOADER_DRIVER_OVERRIDE=crocus`, `LIBGL_DRI3_DISABLE=1` (DRI3 incompleto su Gen5) |
-| 2 core logici, 1-3 GB di RAM | `wineserver` persistente per sessione, limiti di memoria sulle unità, prefix su disco invece che in RAM |
-| Nessun AES-NI | le cifrature TLS di Wine usano i percorsi software di OpenSSL/GnuTLS: attese latenze maggiori nell'handshake |
+| CPU without SSE4.2/POPCNT/AVX | Wine must be compiled with `-march=nehalem -mno-sse4.2 -mno-popcnt`: the `wine-staging` package inherits the `CFLAGS` of `overlay-prismos-common/make.conf` |
+| Gen5: OpenGL 2.1, **no Vulkan** | DXVK and VKD3D-Proton are unusable; the backend is `wined3d` with GLSL and Shader Model 3 |
+| Gen5: Mesa driver `crocus` (not `iris`, not `zink`) | `MESA_LOADER_DRIVER_OVERRIDE=crocus`, `LIBGL_DRI3_DISABLE=1` (DRI3 incomplete on Gen5) |
+| 2 logical cores, 1-3 GB of RAM | persistent per-session `wineserver`, memory limits on the units, prefixes on disk instead of RAM |
+| No AES-NI | Wine's TLS ciphers use the software paths of OpenSSL/GnuTLS: higher handshake latencies are expected |
 
-`prismos-wine-prepare` e `prismos-wine-run` **rilevano** questi vincoli a runtime
-(`detect_vulkan`, `detect_legacy_intel_gpu`) invece di assumerli: su una macchina con Vulkan
-disponibile il backend DXVK resta selezionabile.
+`prismos-wine-prepare` and `prismos-wine-run` **detect** these constraints at runtime
+(`detect_vulkan`, `detect_legacy_intel_gpu`) instead of assuming them: on a machine with
+available Vulkan the DXVK backend remains selectable.
 
-## 2. Componenti installati
+## 2. Installed components
 
-| Componente | Percorso | Ruolo |
+| Component | Path | Role |
 |---|---|---|
-| `prismos-wine-run` | `/usr/bin/prismos-wine-run` | punto d'ingresso utente: prepara l'ambiente, inizializza il prefix se necessario, esegue il PE |
-| `prismos-wine-prepare` | `/usr/libexec/prismos/prismos-wine-prepare` | `ExecStartPre` della sessione: prefix, socket Wayland, backend grafico, ambiente per UID |
-| `99prismos-wine` | `/etc/env.d/99prismos-wine` | ambiente predefinito per tutti gli utenti di sessione |
-| `prismos-x-msi.xml` | `/usr/share/mime/packages/prismos-x-msi.xml` | tipi MIME `application/x-msi`, `application/x-ms-dos-executable`, `application/vnd.android.package-archive` |
-| `prismos-wine-runner.desktop` | `/usr/share/applications/` | voce «Esegui con Wine» del gestore dei file |
-| `prismos-android-runner.desktop` | `/usr/share/applications/` | voce «Esegui con Waydroid» |
-| `prismos-slim-mimeapps.list` | `/etc/xdg/` (Slim) | associa le estensioni Windows e Android a `prismos-slim-launcher` |
-| `prismos-wine-session@.service` | unità template per UID | `wineserver` persistente, `StopWhenUnneeded`, limiti di memoria |
+| `prismos-wine-run` | `/usr/bin/prismos-wine-run` | user entry point: prepares the environment, initializes the prefix if needed, runs the PE |
+| `prismos-wine-prepare` | `/usr/libexec/prismos/prismos-wine-prepare` | `ExecStartPre` of the session: prefix, Wayland socket, graphics backend, per-UID environment |
+| `99prismos-wine` | `/etc/env.d/99prismos-wine` | default environment for all session users |
+| `prismos-x-msi.xml` | `/usr/share/mime/packages/prismos-x-msi.xml` | MIME types `application/x-msi`, `application/x-ms-dos-executable`, `application/vnd.android.package-archive` |
+| `prismos-wine-runner.desktop` | `/usr/share/applications/` | "Run with Wine" entry of the file manager |
+| `prismos-android-runner.desktop` | `/usr/share/applications/` | "Run with Waydroid" entry |
+| `prismos-slim-mimeapps.list` | `/etc/xdg/` (Slim) | associates Windows and Android extensions with `prismos-slim-launcher` |
+| `prismos-wine-session@.service` | template unit per UID | persistent `wineserver`, `StopWhenUnneeded`, memory limits |
 
-USE attivate in `overlay-prismos-common/profiles/base/make.defaults`:
+USE flags enabled in `overlay-prismos-common/profiles/base/make.defaults`:
 
 ```
 wine proton bottles wow64 mingw run-exes win32codecs d3d9 d3d11 fsync esync
 opengl gstreamer openal sdl truetype fontconfig cups udisks v4l
 ```
 
-`run-exes` è la USE che rende i file `.exe` direttamente eseguibili (registrazione
-BINFMT_MISC); le edizioni riducono l'insieme (EDU maschera Wine, Slim esclude Bottles,
-Home e Work includono Proton e Bottles).
+`run-exes` is the USE that makes `.exe` files directly executable (BINFMT_MISC
+registration); editions shrink the set (EDU masks Wine, Slim excludes Bottles, Home and
+Work include Proton and Bottles; PRO includes everything).
 
-## 3. Ambiente
+## 3. Environment
 
 `/etc/env.d/99prismos-wine`:
 
@@ -64,30 +64,29 @@ PRISMOS_WINE_PREFIX="Default"
 LDPATH="/usr/lib64/wine:/usr/lib/wine"
 ```
 
-* `mscoree=d;mshtml=d` disattiva Mono e Gecko: non vengono scaricati al primo avvio (nessun
-  prompt di rete, nessuna dipendenza da .NET Framework);
-* `WINEFSYNC`/`WINEESYNC` usano `futex_waitv` del kernel 6.1 per ridurre la latenza di
-  sincronizzazione dei thread Windows — beneficio misurabile su 2 core;
-* `PROTON_USE_WINED3D=1` impone a Proton il percorso OpenGL;
-* i valori vengono sovrascritti per UID da `/run/prismos/wine-<uid>.env`, scritto da
-  `prismos-wine-prepare`, che conosce il socket Wayland reale e la disponibilità di Vulkan.
+* `mscoree=d;mshtml=d` disables Mono and Gecko: they are not downloaded at first start
+  (no network prompt, no .NET Framework dependency);
+* `WINEFSYNC`/`WINEESYNC` use kernel 6.1 `futex_waitv` to reduce the synchronization
+  latency of Windows threads — a measurable benefit on 2 cores;
+* `PROTON_USE_WINED3D=1` forces Proton onto the OpenGL path;
+* values are overridden per UID by `/run/prismos/wine-<uid>.env`, written by
+  `prismos-wine-prepare`, which knows the real Wayland socket and Vulkan availability.
 
-## 4. Ciclo di vita di una sessione
+## 4. Lifecycle of a session
 
 ### 4.1 `prismos-wine-prepare <uid>`
 
-1. normalizza l'UID (default 1000, utente `chronos`);
-2. `detect_wayland_socket` — individua il socket di Exo (`wayland-0`/`wayland-exo`) nel
-   `XDG_RUNTIME_DIR` dell'utente;
-3. `detect_vulkan` — verifica la presenza di un ICD Vulkan funzionante; su Gen5 l'esito è
-   negativo e il backend diventa `wined3d`;
-4. `ensure_prefix` — crea il prefix con `wineboot -u` se mancante (`WINEARCH=win64`, che su
-   ospite x86-64 ospita sia applicazioni a 32 sia a 64 bit), altrimenti lo riusa;
-5. `write_env` — scrive `/run/prismos/wine-<uid>.env` con `WINEPREFIX`, `WAYLAND_DISPLAY`,
-   le variabili `wined3d_*` e i percorsi delle librerie;
-6. `prewarm` — precarica i moduli Wine nella page cache per ridurre la latenza del primo
-   avvio;
-7. `verify_isa` — conferma che la CPU non abbia SSE4.2 e registra la scelta del backend.
+1. normalizes the UID (default 1000, user `chronos`);
+2. `detect_wayland_socket` — locates the Exo socket (`wayland-0`/`wayland-exo`) in the
+   user's `XDG_RUNTIME_DIR`;
+3. `detect_vulkan` — verifies the presence of a working Vulkan ICD; on Gen5 the outcome is
+   negative and the backend becomes `wined3d`;
+4. `ensure_prefix` — creates the prefix with `wineboot -u` if missing (`WINEARCH=win64`,
+   which on an x86-64 host hosts both 32-bit and 64-bit applications), otherwise reuses it;
+5. `write_env` — writes `/run/prismos/wine-<uid>.env` with `WINEPREFIX`,
+   `WAYLAND_DISPLAY`, the `wined3d_*` variables and the library paths;
+6. `prewarm` — preloads Wine modules into the page cache to reduce first-start latency;
+7. `verify_isa` — confirms the CPU has no SSE4.2 and records the backend choice.
 
 ### 4.2 `prismos-wine-session@<uid>.service`
 
@@ -100,28 +99,28 @@ ExecStart=/usr/bin/wineserver -f
 ExecStop=/usr/bin/wineserver -k
 ```
 
-Il `wineserver` in foreground mantiene vivi i processi Windows fra un lancio e l'altro;
-`StopWhenUnneeded=yes` fa sì che l'unità si arresti quando nessuna applicazione la usa più,
-restituendo la memoria — comportamento essenziale in Slim, dove l'unità è avviata da
-`prismos-slim-launcher` e terminata alla chiusura dell'applicazione.
+The foreground `wineserver` keeps Windows processes alive between launches;
+`StopWhenUnneeded=yes` makes the unit stop when no application uses it any more, giving
+memory back — essential behaviour on Slim, where the unit is started by
+`prismos-slim-launcher` and terminated when the application closes.
 
 ### 4.3 `prismos-wine-run`
 
-Sequenza (`parse_args` → `detect_vulkan` → `detect_legacy_intel_gpu` → `build_env` →
+Sequence (`parse_args` → `detect_vulkan` → `detect_legacy_intel_gpu` → `build_env` →
 `wine_binary` → `init_prefix` → `to_wine_path` → `run_target`):
 
-1. sceglie il binario Wine corretto (`wine` o `wine64`) in base all'architettura
-   dell'eseguibile, ispezionando l'intestazione PE;
-2. compone l'ambiente: `wined3d_VideoMemorySize=64`, `wined3d_MaxShaderModelPS=3`,
-   `wined3d_MaxShaderModelVS=3`, `wined3d_Multisampling=disabled`,
-   `wined3d_OffscreenRenderingMode=fbo`, `MESA_LOADER_DRIVER_OVERRIDE=crocus`,
-   `LIBGL_DRI3_DISABLE=1`;
-3. inizializza il prefix richiesto (`--prefix NOME`) se non esiste;
-4. converte il percorso POSIX in percorso Windows (`C:\...`);
-5. in Slim delega a `prismos-slim-launcher` (`maybe_delegate_slim`) perché il ciclo
-   avvio/teardown sia gestito dal launcher on-demand.
+1. chooses the correct Wine binary (`wine` or `wine64`) based on the executable
+   architecture, inspecting the PE header;
+2. composes the environment: `wined3d_VideoMemorySize=64`,
+   `wined3d_MaxShaderModelPS=3`, `wined3d_MaxShaderModelVS=3`,
+   `wined3d_Multisampling=disabled`, `wined3d_OffscreenRenderingMode=fbo`,
+   `MESA_LOADER_DRIVER_OVERRIDE=crocus`, `LIBGL_DRI3_DISABLE=1`;
+3. initializes the requested prefix (`--prefix NAME`) if it does not exist;
+4. converts the POSIX path into a Windows path (`C:\...`);
+5. on Slim delegates to `prismos-slim-launcher` (`maybe_delegate_slim`) so that the
+   start/teardown cycle is managed by the on-demand launcher.
 
-Uso:
+Usage:
 
 ```bash
 prismos-wine-run ~/Downloads/npp.Installer.exe --prefix Default -- /S
@@ -129,19 +128,19 @@ prismos-wine-run "C:/Program Files/Notepad++/notepad++.exe" --verbose
 prismos-wine-run --list-prefixes
 ```
 
-## 5. Apertura dal gestore dei file
+## 5. Opening from the file manager
 
-Il tipo MIME `application/x-ms-dos-executable` (estensioni `.exe`, `.dll`, `.scr`, `.cpl`,
-`.com`) e `application/x-msi` (`.msi`, `.msp`, `.msm`) sono associati a
-`prismos-wine-runner.desktop`, che invoca `prismos-wine-run` con il file selezionato. Con
-`USE=run-exes` e `CONFIG_BINFMT_MISC=y` il kernel può anche eseguire direttamente i PE:
-prismOS preferisce comunque il passaggio esplicito dal runner, perché è l'unico punto in cui
-l'ambiente grafico corretto (crocus, DRI2, wined3d) viene garantito.
+The MIME types `application/x-ms-dos-executable` (extensions `.exe`, `.dll`, `.scr`,
+`.cpl`, `.com`) and `application/x-msi` (`.msi`, `.msp`, `.msm`) are associated with
+`prismos-wine-runner.desktop`, which invokes `prismos-wine-run` with the selected file.
+With `USE=run-exes` and `CONFIG_BINFMT_MISC=y` the kernel can also execute PEs directly:
+prismOS nonetheless prefers the explicit passage through the runner, because it is the
+only place where the correct graphics environment (crocus, DRI2, wined3d) is guaranteed.
 
-Le voci di `profiles/app_pool.json` di tipo `Windows_Pkg` dichiarano tutto il necessario per
-un'installazione non presidiata:
+The `Windows_Pkg` entries of `profiles/app_pool.json` declare everything needed for an
+unattended installation:
 
-| Campo | Esempio (Notepad++) |
+| Field | Example (Notepad++) |
 |---|---|
 | `wine_prefix` | `Default` |
 | `wine_arch` | `win32` |
@@ -151,48 +150,48 @@ un'installazione non presidiata:
 | `mime_types` | `text/plain`, `application/xml`, `application/json` |
 | `launch_url` | `wine://C:/Program Files/Notepad++/notepad++.exe` |
 
-Le quattro voci Windows del pool sono Notepad++, PuTTY, 7-Zip Console e Visual Studio Code
-(edizioni Work e Slim secondo `flavors`).
+The four Windows entries of the pool are Notepad++, PuTTY, 7-Zip Console and Visual Studio
+Code (Work and Slim editions according to `flavors`; all of them in PRO).
 
-## 6. Proton e Bottles
+## 6. Proton and Bottles
 
-* **Proton** è disponibile nelle edizioni Home e Work. Con `PROTON_USE_WINED3D=1` i titoli
-  Direct3D 9/10/11 passano da `wined3d`; DXVK viene usato solo se `detect_vulkan` trova un
-  ICD funzionante. Su Gen5 le prestazioni sono quelle di un rasterizzatore OpenGL 2.1 con
-  Shader Model 3: sono giocabili titoli 2D, isometrici e i primi 3D degli anni 2000.
-* **Bottles** è il gestore grafico dei prefissi (Home e Work). Ogni «bottiglia» corrisponde
-  a un prefisso sotto `PRISMOS_WINE_PREFIX_ROOT`; Slim esclude Bottles per ridurre
-  l'ingombro, restando però compatibile con i prefissi creati manualmente.
-* **Gamepad**: `CONFIG_JOYSTICK_XPAD`, `HIDRAW`, `UHID`, `INPUT_FF_MEMLESS` nel frammento
-  `wine.config` abilitano il supporto XInput per i controller Xbox via Wine.
+* **Proton** is available on the Home, Work and PRO editions. With
+  `PROTON_USE_WINED3D=1` Direct3D 9/10/11 titles go through `wined3d`; DXVK is used only
+  if `detect_vulkan` finds a working ICD. On Gen5 performance is that of an OpenGL 2.1
+  rasterizer with Shader Model 3: playable titles are 2D, isometric and early-2000s 3D.
+* **Bottles** is the graphical prefix manager (Home, Work and PRO). Every "bottle"
+  corresponds to a prefix under `PRISMOS_WINE_PREFIX_ROOT`; Slim excludes Bottles to
+  reduce footprint while remaining compatible with manually created prefixes.
+* **Gamepads**: `CONFIG_JOYSTICK_XPAD`, `HIDRAW`, `UHID`, `INPUT_FF_MEMLESS` in the
+  `wine.config` fragment enable XInput support for Xbox controllers via Wine.
 
-## 7. Requisiti del kernel
+## 7. Kernel requirements
 
-Frammento `kernel/chromeos/config/chromiumos-x86_64/prismos_legacy/wine.config`:
+Fragment `kernel/chromeos/config/chromiumos-x86_64/prismos_legacy/wine.config`:
 
 ```
-CONFIG_BINFMT_MISC=y            esecuzione diretta dei PE
+CONFIG_BINFMT_MISC=y            direct execution of PEs
 CONFIG_FUTEX=y / FUTEX_PI=y     fsync/esync (futex_waitv in 6.1)
 CONFIG_RT_MUTEXES=y / RT_GROUP_SCHED=y / PREEMPT_NOTIFIERS=y
-CONFIG_TRANSPARENT_HUGEPAGE=y / ..._MADVISE=y   prefissi di grandi dimensioni
+CONFIG_TRANSPARENT_HUGEPAGE=y / ..._MADVISE=y   large prefixes
 CONFIG_ZSWAP=y / ZSWAP_DEFAULT_ON=y / ZSWAP_COMPRESSOR_DEFAULT_ZSTD=y
-CONFIG_IO_URING=y / AIO=y       I/O asincrono dei giochi moderni
+CONFIG_IO_URING=y / AIO=y       asynchronous I/O of modern games
 CONFIG_JOYSTICK_XPAD=y / HIDRAW=y / UHID=y / INPUT_FF_MEMLESS=y
-CONFIG_PPTP=y / PPPOE=y / NET_IPGRE_DEMUX=y     VPN legacy aziendali
+CONFIG_PPTP=y / PPPOE=y / NET_IPGRE_DEMUX=y     legacy corporate VPNs
 ```
 
-## 8. Diagnosi
+## 8. Diagnostics
 
-| Sintomo | Causa | Rimedio |
+| Symptom | Cause | Remedy |
 |---|---|---|
-| `SIGILL` all'avvio di `wine` o di un `.exe` | Wine compilato con SSE4.2/POPCNT | verificare `CFLAGS` in `overlay-prismos-common/make.conf` e ricompilare; `verify_legacy_cpu.sh --pe /usr/bin/wine` |
-| Schermo nero o finestra vuota | DXVK selezionato senza Vulkan | `PROTON_USE_WINED3D=1`; controllare `detect_vulkan` in `prismos-wine-run --verbose` |
-| Rendering lentissimo, `GLX_ARB` mancante | driver Mesa `iris` o `zink` caricato | `MESA_LOADER_DRIVER_OVERRIDE=crocus`, `LIBGL_DRI3_DISABLE=1` |
-| Prompt di download Mono/Gecko al primo avvio | `WINEDLLOVERRIDES` non applicato | verificare `/etc/env.d/99prismos-wine` e rieseguire `env-update` |
-| Audio assente in Slim | `USE=-pulseaudio -pipewire` | comportamento atteso: ALSA diretto; `aplay -l` per verificare il device |
-| `.msi` si apre con l'editor di testo | tipo MIME non registrato | `update-mime-database /usr/share/mime`; verificare `prismos-x-msi.xml` |
-| L'applicazione resta in esecuzione dopo la chiusura | `wineserver` persistente | `wineserver -k` oppure `prismos-slim-launcher stop-all`; in Slim è automatico |
-| Prefisso corrotto dopo un OOM | kill durante la scrittura | `prismos-wine-run --reset-prefix Default` |
+| `SIGILL` at start of `wine` or of an `.exe` | Wine compiled with SSE4.2/POPCNT | check `CFLAGS` in `overlay-prismos-common/make.conf` and rebuild; `verify_legacy_cpu.sh --pe /usr/bin/wine` |
+| Black screen or empty window | DXVK selected without Vulkan | `PROTON_USE_WINED3D=1`; check `detect_vulkan` in `prismos-wine-run --verbose` |
+| Extremely slow rendering, missing `GLX_ARB` | Mesa driver `iris` or `zink` loaded | `MESA_LOADER_DRIVER_OVERRIDE=crocus`, `LIBGL_DRI3_DISABLE=1` |
+| Mono/Gecko download prompt at first start | `WINEDLLOVERRIDES` not applied | check `/etc/env.d/99prismos-wine` and re-run `env-update` |
+| No audio on Slim | `USE=-pulseaudio -pipewire` | expected behaviour: direct ALSA; `aplay -l` to verify the device |
+| `.msi` opens with the text editor | MIME type not registered | `update-mime-database /usr/share/mime`; check `prismos-x-msi.xml` |
+| Application keeps running after close | persistent `wineserver` | `wineserver -k` or `prismos-slim-launcher stop-all`; on Slim it is automatic |
+| Prefix corrupted after an OOM | kill during write | `prismos-wine-run --reset-prefix Default` |
 
-Log utili: `journalctl -t prismos-wine`, `WINEDEBUG=+loaddll,+seh prismos-wine-run ...
+Useful logs: `journalctl -t prismos-wine`, `WINEDEBUG=+loaddll,+seh prismos-wine-run ...
 --verbose`, `/var/log/prismos/`.

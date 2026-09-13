@@ -106,11 +106,13 @@
   <tr>
     <td width="50%" valign="top">
 
-#### Four editions
+#### Five editions
 - **EDU**: cloud-managed (Route A) or local-policy (Route B) with URLBlocklist
 - **Home**: streaming, Widevine L3, cloud gaming, Proton and Bottles
 - **Work**: M365, VPN with kill-switch, LUKS vault for Downloads, Crostini
 - **Slim**: under 2 GB of RAM, subsystems installed but **off at boot**, started on demand
+- **PRO**: all-in-one single image — the edition is chosen at first setup
+  (kernel cmdline `prismos.edition=`, preseed file, or console prompt)
 
 </td>
     <td width="50%" valign="top">
@@ -162,15 +164,15 @@ all of them:
 
 </div>
 
-| | **EDU** | **Home** | **Work** | **Slim** |
-|---|---|---|---|---|
-| Audience | labs and classrooms | household use | corporate fleets | machines under 2 GB of RAM |
-| Minimum RAM | 2048 MiB | 3072 MiB | 3072 MiB | 1024 MiB |
-| Waydroid at boot | `enabled` | `enabled` | `on-demand` | **`on-demand` (off)** |
-| Wine at boot | `masked` | `enabled` | `enabled` | **`on-demand` (off)** |
-| Chromium policy | Route A or B | none | device policy (VPN/anti-anonymity) | none |
-| Dock (max pins / default) | 8 / 6, 48 px | 10 / 8, 56 px, blur | 8 / 8, 48 px, opaque | 6 / 6, 40 px, no animations |
-| Distinctive trait | ephemeral profiles, guest disabled, social blocked | Widevine L3 (720p ceiling), SIMD SSE4.1 decoding, cloud gaming | pinned M365, VPN kill-switch, LUKS vault | zram zstd, zswap, earlyoom, 120 s idle reaper |
+| | **EDU** | **Home** | **Work** | **Slim** | **PRO** |
+|---|---|---|---|---|---|
+| Audience | labs and classrooms | household use | corporate fleets | machines under 2 GB of RAM | one image, many destinations |
+| Minimum RAM | 2048 MiB | 3072 MiB | 3072 MiB | 1024 MiB | 3072 MiB |
+| Waydroid at boot | `enabled` | `enabled` | `on-demand` | **`on-demand` (off)** | per the chosen edition |
+| Wine at boot | `masked` | `enabled` | `enabled` | **`on-demand` (off)** | per the chosen edition |
+| Chromium policy | Route A or B | none | device policy (VPN/anti-anonymity) | none | template of the chosen edition |
+| Dock (max pins / default) | 8 / 6, 48 px | 10 / 8, 56 px, blur | 8 / 8, 48 px, opaque | 6 / 6, 40 px, no animations | 10 / 8, 52 px, blur |
+| Distinctive trait | ephemeral profiles, guest disabled, social blocked | Widevine L3 (720p ceiling), SIMD SSE4.1 decoding, cloud gaming | pinned M365, VPN kill-switch, LUKS vault | zram zstd, zswap, earlyoom, 120 s idle reaper | edition chosen at first setup by `prismos-edition-setup` |
 
 The functional contract of **Slim**: Waydroid and Wine are *installed* (USE flags on, MIME
 types registered, `.desktop` entries present) but their daemons are **completely off at
@@ -206,11 +208,11 @@ prismOS/
 ├── overlays/
 │   ├── overlay-amd64-prismos/    amd64-prismos board + rootfs + squircle icon theme
 │   ├── overlay-prismos-common/   CFLAGS/USE, eclass, 6 packages, 10 systemd units
-│   └── overlay-prismos-{edu,home,work,slim}/   edition profile and rootfs
+│   └── overlay-prismos-{edu,home,work,slim,pro}/   edition profile and rootfs
 ├── profiles/
-│   ├── app_pool.json             25 applications, 4 bundles, ISA and RAM requirements
+│   ├── app_pool.json             25 applications, 5 bundles, ISA and RAM requirements
 │   ├── app_pool.schema.json      draft-07 schema with per-type validation
-│   └── {edu,home,work,slim}.conf contract read by build_iso.sh
+│   └── {edu,home,work,slim,pro}.conf contract read by build_iso.sh
 └── scripts/
     ├── build_iso.sh              interactive and unattended build of the four editions
     ├── set_edu_policy.sh         Route A / Route B
@@ -267,7 +269,10 @@ prismOS/
 # explicit selection from the pool
 ./scripts/build_iso.sh edu --apps 1,3,5-7
 
-# all four editions in sequence
+# all-in-one image, edition chosen at first setup
+./scripts/build_iso.sh pro --bundle
+
+# all five editions in sequence
 ./scripts/build_iso.sh all --bundle
 
 # overlay synchronization only
@@ -526,6 +531,15 @@ browser.
 **Slim**: Chromium and Ash get absolute priority, Waydroid and Wine exist but consume no
 memory until you open a compatible file, and zram zstd + earlyoom protect the session from
 the kernel OOM killer.
+
+### What exactly is the PRO edition?
+A single image that compiles in every targeted capability and defers the decision to
+first setup: `prismos-edition-setup` (run before `prismos-firstboot`) reads
+`prismos.edition=` from the kernel command line, or `/etc/prismos/edition-choice`, or
+asks on the console with a 60 s timeout, then copies the template of the chosen edition
+(`edition.conf`, tuning files, device policy where defined) over `/etc`. From that moment
+the machine behaves exactly like a native build of that edition. `--rechoose` asks again
+at the next boot.
 
 ### My school has no Google Admin Console: can I still use EDU?
 Yes, with **Route B**: the device policy is written locally to

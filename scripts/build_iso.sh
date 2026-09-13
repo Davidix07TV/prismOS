@@ -20,7 +20,7 @@
 #   10. raccolta in output/prismOS_<edizione>_legacy.img
 #
 #  USO
-#    ./scripts/build_iso.sh <edu|home|work|slim|all> [opzioni]
+#    ./scripts/build_iso.sh <edu|home|work|slim|pro|all> [options]
 #
 #  ESEMPI
 #    ./scripts/build_iso.sh slim                     # interattivo
@@ -126,7 +126,7 @@ usage() {
 ${PRISMOS_C_BOLD}prismOS ${PROG_VERSION} - costruzione immagini ChromiumOS Legacy${PRISMOS_C_RESET}
 
 USO
-  ${PROG} <edu|home|work|slim|all> [opzioni]
+  ${PROG} <edu|home|work|slim|pro|all> [options]
 
 ARGOMENTO OBBLIGATORIO
   edu            prismOS EDU   (Cloud-Managed / Local-Policy per istituti)
@@ -181,7 +181,7 @@ USAGE
 parse_args() {
 	while (( $# > 0 )); do
 		case "$1" in
-			edu|home|work|slim|all)
+			edu|home|work|slim|pro|all)
 				if [[ -n "${ARG_EDITION}" ]]; then
 					die 1 "edizione gia' specificata (${ARG_EDITION}); argomento duplicato: $1"
 				fi
@@ -975,6 +975,66 @@ MAKEHEADER
 	sync_kernel_splitconfig
 }
 
+# =============================================================================
+# PRO: EDITION TEMPLATES
+# -----------------------------------------------------------------------------
+# The all-in-one image carries, under /usr/share/prismos/editions/<edition>/,
+# the complete /etc subtree of each targeted edition: the generated
+# edition.conf, the tuning files of the edition overlay and, where the edition
+# defines one, its Chromium device policy. prismos-edition-setup copies the
+# chosen subtree over the live /etc at first boot.
+# =============================================================================
+install_pro_edition_templates() {
+	local board_overlay="$1"
+	local dest_root="${board_overlay}/board/usr/share/prismos/editions"
+	local saved_staging="${STAGING_DIR}"
+	local saved_edition="${EDITION}"
+	local ed dest n=0
+
+	for ed in edu home work slim; do
+		dest="${dest_root}/${ed}"
+		STAGING_DIR="${PRISMOS_BUILD_DIR}/.pro-tpl-${ed}-${BUILD_STAMP}"
+		ensure_dir "${STAGING_DIR}"
+
+		# Regenerate the profile variables of the template edition, then its
+		# edition.conf, exactly as a native build of that edition would.
+		load_edition_profile "${ed}"
+		generate_edition_conf "${ed}"
+		copy_tree "${STAGING_DIR}/etc" "${dest}/etc"
+
+		# Tuning files, zram/earlyoom defaults and Chromium switches of the
+		# edition overlay rootfs.
+		local ed_files="${PRISMOS_ROOT}/overlays/overlay-prismos-${ed}/files"
+		if [[ -d "${ed_files}/etc" ]]; then
+			copy_tree "${ed_files}/etc" "${dest}/etc"
+		fi
+
+		# Device policy template, where the edition defines one. EDU keeps its
+		# canonical template outside files/, hence the explicit branch.
+		local pol_src=""
+		case "${ed}" in
+			edu)  pol_src="${PRISMOS_ROOT}/overlays/overlay-prismos-edu/chrome_policy.json" ;;
+			work) pol_src="${ed_files}/etc/chromium/policies/managed/prismos_policy.json" ;;
+		esac
+		if [[ -n "${pol_src}" && -f "${pol_src}" ]]; then
+			ensure_dir "${dest}/etc/chromium/policies/managed"
+			cp -f "${pol_src}" "${dest}/etc/chromium/policies/managed/prismos_policy.json"
+			json_validate "${dest}/etc/chromium/policies/managed/prismos_policy.json" || \
+				die 1 "template policy di ${ed} non valido"
+		fi
+
+		rm -rf "${STAGING_DIR}"
+		(( ++n )) || true
+	done
+
+	# Restore the PRO profile: the remaining build steps must see PRO again.
+	STAGING_DIR="${saved_staging}"
+	load_edition_profile "${saved_edition}"
+	ensure_dir "${STAGING_DIR}"
+
+	log_ok "template di ${n} edizioni installati in ${dest_root#"${board_overlay}/board"}"
+}
+
 install_edition_policy() {
 	local board_overlay="$1"
 	local policy_dir="${board_overlay}/board/etc/chromium/policies/managed"
@@ -1021,6 +1081,14 @@ install_edition_policy() {
 		home|slim)
 			log_info "edizione ${EDITION}: nessuna policy Chromium di dispositivo"
 			rm -f "${policy_dir}/prismos_policy.json"
+			;;
+		pro)
+			# PRO ships no active device policy: the policy of the chosen
+			# edition is installed at first setup from the templates placed
+			# under /usr/share/prismos/editions/<edition>/.
+			log_info "PRO: nessuna policy attiva in build; installati i template di edizione"
+			rm -f "${policy_dir}/prismos_policy.json"
+			install_pro_edition_templates "${board_overlay}"
 			;;
 		*)
 			log_warn "edizione sconosciuta ${EDITION}: nessuna policy applicata"
@@ -1201,6 +1269,13 @@ apply_subsystem_boot_states() {
 	script+="sudo systemctl --root='${board_root}' enable prismos-dock-apply.service; "
 	script+="sudo systemctl --root='${board_root}' enable prismos-accelerator-daemon.service; "
 	script+="sudo systemctl --root='${board_root}' enable prismos-firstboot.service; "
+
+	# PRO: the edition chooser must run before prismos-firstboot at first boot.
+	# The unit ships only in the PRO rootfs, hence the existence check.
+	if [[ -f "${board_root}/usr/lib/systemd/system/prismos-edition-setup.service" ]]; then
+		script+="sudo systemctl --root='${board_root}' enable prismos-edition-setup.service; "
+		log_info "PRO: prismos-edition-setup.service abilitata per il primo avvio"
+	fi
 
 	cros_sdk_shell "${script}" || log_warn "alcune operazioni systemctl non sono riuscite"
 	log_ok "stati applicati: waydroid=${WAYDROID_BOOT_STATE} wine=${WINE_BOOT_STATE}"

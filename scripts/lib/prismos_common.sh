@@ -51,7 +51,7 @@ readonly PRISMOS_PROFILES_DIR PRISMOS_OVERLAYS_DIR PRISMOS_KERNEL_DIR
 readonly PRISMOS_OUTPUT_DIR PRISMOS_BUILD_DIR PRISMOS_LOG_DIR
 
 PRISMOS_APP_POOL="${PRISMOS_PROFILES_DIR}/app_pool.json"
-PRISMOS_EDITIONS=(edu home work slim)
+PRISMOS_EDITIONS=(edu home work slim pro)
 PRISMOS_DEFAULT_BOARD="amd64-prismos"
 PRISMOS_DEFAULT_SDK="${HOME}/chromiumos/cros_sdk"
 
@@ -250,11 +250,14 @@ bundle = data.get("flavor_bundles", {}).get(edition, {})
 preselected = set(bundle.get("preselected", []))
 blocked = set(bundle.get("blocked_by_policy", []))
 index = 0
+# PRO is the all-in-one image: like "all", it sees every application of the
+# pool; its bundle decides what is preselected and pinned.
+inclusive = edition in ("all", "pro")
 for app in data.get("applications", []):
     flavors = app.get("flavors", [])
-    if edition != "all" and edition not in flavors:
+    if not inclusive and edition not in flavors:
         continue
-    if edition != "all" and app.get("id") in blocked:
+    if not inclusive and app.get("id") in blocked:
         continue
     index += 1
     flag = "1" if app.get("id") in preselected else "0"

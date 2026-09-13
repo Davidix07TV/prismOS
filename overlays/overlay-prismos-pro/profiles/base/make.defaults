@@ -1,0 +1,26 @@
+PRISMOS_EDITION="prismos_edition_pro"
+PRISMOS_EDITION_ID="pro"
+PROFILE_ONLY_VARIABLES="PRISMOS_EDITION PRISMOS_EDITION_ID"
+
+# Union of the positive USE of the four targeted editions: PRO keeps every
+# subsystem available and lets the first-setup choice decide what runs.
+USE="${USE} prismos_edition_pro all-in-one edition-chooser media-stack \
+cloud-gaming android-gaming windows-gaming drm-l3 m365-suite vpn-advanced \
+encrypted-dl kerberos tpm2-seal audit-logging waydroid wine proton bottles \
+crostini virtio-gpu gstreamer pipewire pulseaudio vaapi widevine h264 aac \
+mp3 proprietary-codecs zswap earlyoom -device-restrict -kiosk-exam \
+-school-lab -slim-ondemand -low-ram"
+
+# ARC and friends stay negated at every level, PRO included.
+USE="${USE} -arc -arc-plus -arcplusplus -arcvm"
+
+PRISMOS_SUBSYSTEM="prismos_subsystem_waydroid prismos_subsystem_wine prismos_subsystem_crostini"
+
+SYSTEM_PACKAGES="${SYSTEM_PACKAGES} \
+app-emulation/bottles \
+app-crypt/gnupg \
+app-crypt/tpm2-tools \
+net-vpn/openvpn \
+net-vpn/strongswan \
+sys-fs/cryptsetup \
+"

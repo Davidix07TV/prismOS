@@ -1,30 +1,30 @@
-# Dock macOS-like e launcher centralizzato
+# macOS-like dock and central launcher
 
-Come prismOS impone l'aspetto della shelf di Ash — **posizione bassa, icone centrate,
-autohide sempre attivo, maschera squircle** — e come funziona il launcher globale in stile
-Spotlight.
+How prismOS imposes the look of the Ash shelf — **bottom position, centred icons,
+autohide always on, squircle mask** — and how the global Spotlight-style launcher works.
 
-Documentazione di riferimento per `prismos-dock-apply.service`,
-`prismos-accelerator-daemon.service` e i comandi `prismos-dock` e `prismos-accelerators`.
+Reference documentation for `prismos-dock-apply.service`,
+`prismos-accelerator-daemon.service` and the commands `prismos-dock` and
+`prismos-accelerators`.
 
 ---
 
-## 1. I tre meccanismi, in ordine di autorità
+## 1. The three mechanisms, in order of authority
 
-ChromiumOS offre tre livelli diversi per configurare la shelf, con precedenze differenti.
-prismOS li usa tutti e tre, perché nessuno basta da solo:
+ChromiumOS offers three different levels to configure the shelf, with different
+precedence. prismOS uses all three, because none is sufficient alone:
 
-| # | Meccanismo | Percorso | Autorità |
+| # | Mechanism | Path | Authority |
 |---|---|---|---|
-| 1 | **Policy di dispositivo** | `/etc/chromium/policies/managed/zz-prismos-dock.json` | vincolante: l'utente non può spostare la shelf né disattivare l'autohide |
-| 2 | **Preferenze Ash** | `/home/chronos/u-*/Local State` (`ash.shelf.*`) | applicate all'avvio della sessione; rendono coerente il primo accesso anche dove la policy non arriva (dimensione icone, centratura) |
-| 3 | **`shelf.json` di skel** | `/etc/skel/.config/chromiumos/shelf.json` | modello per i nuovi profili: elenco delle icone bloccate e parametri di aspetto |
+| 1 | **Device policy** | `/etc/chromium/policies/managed/zz-prismos-dock.json` | binding: the user cannot move the shelf nor disable autohide |
+| 2 | **Ash preferences** | `/home/chronos/u-*/Local State` (`ash.shelf.*`) | applied at session start; keep the first login coherent even where policy does not reach (icon size, centring) |
+| 3 | **skel `shelf.json`** | `/etc/skel/.config/chromiumos/shelf.json` | template for new profiles: list of pinned icons and appearance parameters |
 
-Il prefisso `zz-` sul file di policy non è decorativo: Chromium carica i file della directory
-`managed` in ordine lessicografico e, a parità di chiave, vince l'ultimo. Con `zz-` la policy
-della Dock prevale su eventuali policy di edizione scritte in `prismos_policy.json`.
+The `zz-` prefix on the policy file is not decorative: Chromium loads the files of the
+`managed` directory in lexicographic order and, on equal keys, the last one wins. With
+`zz-` the dock policy prevails over any edition policy written in `prismos_policy.json`.
 
-### 1.1 Chiavi di policy generate
+### 1.1 Generated policy keys
 
 ```json
 {
@@ -37,84 +37,84 @@ della Dock prevale su eventuali policy di edizione scritte in `prismos_policy.js
 }
 ```
 
-* `ShelfAlignment` e `ShelfAutoHideBehavior` sono le uniche due chiavi realmente vincolanti
-  per l'aspetto; tutto il resto è derivato;
-* `PinnedLauncherApps` accetta URL (oltre agli ID delle applicazioni del Web Store): è il
-  motivo per cui il pool usa **PWA installate** (`WebAppInstallForceList`) invece di ID di
-  applicazioni esterne. Gli ID del Web Store non sono inventabili e cambiano nel tempo,
-  mentre l'URL di installazione è stabile e verificabile;
-* `WebAppInstallForceList` forza l'installazione delle PWA selezionate, così le icone
-  esistono al primo accesso anche senza rete di gestione.
+* `ShelfAlignment` and `ShelfAutoHideBehavior` are the only two keys really binding for
+  the look; everything else is derived;
+* `PinnedLauncherApps` accepts URLs (in addition to Web Store application IDs): this is
+  why the pool uses **installed PWAs** (`WebAppInstallForceList`) instead of external
+  application IDs. Web Store IDs cannot be invented and change over time, while the
+  installation URL is stable and verifiable;
+* `WebAppInstallForceList` forces installation of the selected PWAs, so the icons exist at
+  first login even without a management network.
 
-`PinnedLauncherApps` accetta **solo** riferimenti ad applicazioni web (URL o ID del Web
-Store): le voci del pool di tipo `Android_Pkg` e `Windows_Pkg` non possono quindi comparire
-nella policy e restano confinate a `shelf.json`, da cui Ash le aggiunge alla shelf come
-voci di launcher con il proprio sottosistema di appartenenza. Nella pratica, per l'edizione
-Work la policy fissa 6 PWA mentre `shelf.json` dichiara 8 icone bloccate (le due aggiuntive
-sono PuTTY e Notepad++ via Wine). Il conteggio dei pin massimi (`SHELF_PIN_MAX`) si riferisce
-perciò a `shelf.json`, non alla policy.
+`PinnedLauncherApps` accepts **only** references to web applications (URLs or Web Store
+IDs): `Android_Pkg` and `Windows_Pkg` entries of the pool cannot therefore appear in the
+policy and remain confined to `shelf.json`, from which Ash adds them to the shelf as
+launcher entries with their own subsystem. In practice, for the Work edition the policy
+pins 6 PWAs while `shelf.json` declares 8 pinned icons (the two extra ones are PuTTY and
+Notepad++ via Wine). The maximum pin count (`SHELF_PIN_MAX`) therefore refers to
+`shelf.json`, not to the policy.
 
-## 2. Flusso di generazione
+## 2. Generation flow
 
 ```
-profiles/app_pool.json                 profiles/<edizione>.conf
+profiles/app_pool.json                 profiles/<edition>.conf
         │                                        │
         │  build_iso.sh: load_app_table          │  load_edition_profile
-        │  select_apps_* (menu / bundle / lista) │
+        │  select_apps_* (menu / bundle / list)  │
         └───────────────┬────────────────────────┘
                         │  generate_shelf_json
                         ▼
-        build/<edizione>-<stamp>/etc/skel/.config/chromiumos/shelf.json
-                        │  sync_overlays → board overlay → immagine
+        build/<edition>-<stamp>/etc/skel/.config/chromiumos/shelf.json
+                        │  sync_overlays → board overlay → image
                         ▼
         /etc/skel/.config/chromiumos/shelf.json
                         │
       install_edition_policy: policy_mapping → zz-prismos-dock.json
                         │
                         ▼
-   avvio: prismos-dock-apply.service (Before=ui.target)
-             ├── scrive/aggiorna zz-prismos-dock.json
-             ├── applica i pref ash.shelf.* nei profili esistenti
-             └── rigenera il tema di icone se mancante
+   boot: prismos-dock-apply.service (Before=ui.target)
+             ├── writes/updates zz-prismos-dock.json
+             ├── applies ash.shelf.* prefs in existing profiles
+             └── regenerates the icon theme if missing
 ```
 
-### 2.1 Struttura di `shelf.json`
+### 2.1 Structure of `shelf.json`
 
-| Chiave | Contenuto |
+| Key | Content |
 |---|---|
-| `schema_version`, `generated_by`, `edition`, `edition_name` | tracciabilità della build |
+| `schema_version`, `generated_by`, `edition`, `edition_name` | build traceability |
 | `target_path` | `/etc/skel/.config/chromiumos/shelf.json` |
 | `shelf` | `alignment`, `autohide`, `centered`, `icon_size`, `icon_spacing`, `squircle_radius`, `squircle_exponent`, `launcher_button_position`, `launcher_accelerator`, `web_search_accelerator`, `show_window_indicators`, `magnification_on_hover`, `background_blur`, `background_opacity`, `animations_enabled`, `animation_duration_ms`, `max_visible_windows`, `max_pinned` |
-| `policy_mapping` | traduzione in chiavi di policy Chromium (`ShelfAlignment`, `ShelfAutoHideBehavior`, `PinnedLauncherApps`, `WebAppInstallForceList`) |
-| `pinned_apps` | icone bloccate, con tipo, sottosistema di appartenenza e unità systemd da attivare per le applicazioni non web |
-| `unselected_apps` | voci del pool disponibili ma non installate, per il launcher |
-| `subsystems` | stato di Waydroid e Wine nell'edizione (`enabled`, `on-demand`, `masked`) |
+| `policy_mapping` | translation into Chromium policy keys (`ShelfAlignment`, `ShelfAutoHideBehavior`, `PinnedLauncherApps`, `WebAppInstallForceList`) |
+| `pinned_apps` | pinned icons, with type, owning subsystem and systemd unit to start for non-web applications |
+| `unselected_apps` | pool entries available but not installed, for the launcher |
+| `subsystems` | state of Waydroid and Wine in the edition (`enabled`, `on-demand`, `masked`) |
 
-`shelf.json` è al tempo stesso configurazione e documentazione: chi apre il file capisce
-perché la Dock è fatta in quel modo e quali applicazioni erano candidate.
+`shelf.json` is at the same time configuration and documentation: whoever opens the file
+understands why the dock looks that way and which applications were candidates.
 
-### 2.2 Parametri per edizione
+### 2.2 Parameters per edition
 
-| Parametro | EDU | Home | Work | Slim |
-|---|---|---|---|---|
-| `SHELF_ALIGNMENT` | Bottom | Bottom | Bottom | Bottom |
-| `SHELF_AUTOHIDE` | Always | Always | Always | Always |
-| `SHELF_CENTERED` | true | true | true | true |
-| `SHELF_ICON_SIZE` | 48 | 56 | 48 | 40 |
-| `SHELF_SQUIRCLE_RADIUS` | 0.28 | 0.28 | 0.28 | 0.28 |
-| `SHELF_SQUIRCLE_EXPONENT` | 5.0 | 5.0 | 5.0 | 5.0 |
-| `SHELF_PIN_MAX` | 8 | 10 | 8 | 6 |
-| animazioni / blur | sì | sì | sì | **no** |
-| `SHELF_BACKGROUND_OPACITY` | 0.86 | 0.86 | 0.86 | **1.00** |
-| `SHELF_MAX_VISIBLE_WINDOWS` | 8 | 8 | 8 | **4** |
+| Parameter | EDU | Home | Work | Slim | PRO |
+|---|---|---|---|---|---|
+| `SHELF_ALIGNMENT` | Bottom | Bottom | Bottom | Bottom | Bottom |
+| `SHELF_AUTOHIDE` | Always | Always | Always | Always | Always |
+| `SHELF_CENTERED` | true | true | true | true | true |
+| `SHELF_ICON_SIZE` | 48 | 56 | 48 | 40 | 52 |
+| `SHELF_SQUIRCLE_RADIUS` | 0.28 | 0.28 | 0.28 | 0.28 | 0.28 |
+| `SHELF_SQUIRCLE_EXPONENT` | 5.0 | 5.0 | 5.0 | 5.0 | 5.0 |
+| `SHELF_PIN_MAX` | 8 | 10 | 8 | 6 | 10 |
+| animations / blur | yes | yes | yes | **no** | yes |
+| `SHELF_BACKGROUND_OPACITY` | 0.86 | 0.86 | 0.86 | **1.00** | 0.86 |
+| `SHELF_MAX_VISIBLE_WINDOWS` | 8 | 8 | 8 | **4** | 8 |
 
-Le tre costanti invariate fra le edizioni (`Bottom`, `Always`, centratura) sono il requisito
-di prodotto; tutto il resto scala con la RAM e con la GPU.
+The three constants invariant across editions (`Bottom`, `Always`, centring) are the
+product requirement; everything else scales with RAM and GPU.
 
 ## 3. `prismos-dock-apply`
 
-Helper di sistema in Python 3, installato in `/usr/libexec/prismos/prismos-dock-apply` e
-eseguito da `prismos-dock-apply.service`:
+System helper in Python 3, installed at `/usr/libexec/prismos/prismos-dock-apply` and
+executed by `prismos-dock-apply.service`:
 
 ```
 After=local-fs.target systemd-tmpfiles-setup.service prismos-firstboot.service
@@ -125,55 +125,56 @@ ProtectKernelModules=yes, ProtectControlGroups=yes, RestrictSUIDSGID=yes
 ReadWritePaths=/etc/chromium /etc/xdg /usr/share/icons/prismOS-Squircle /home/chronos
 ```
 
-`Before=ui.target` è la parte essenziale: policy e preferenze sono già su disco quando Ash
-costruisce la shelf, quindi l'utente non vede mai il riposizionamento né un'icona non
-mascherata.
+`Before=ui.target` is the essential part: policy and preferences are already on disk when
+Ash builds the shelf, therefore the user never sees the repositioning nor an unmasked
+icon.
 
-Le preferenze `ash.shelf.*` vengono scritte nei profili esistenti
-(`/home/chronos/u-*/Local State`) **solo se il processo Chrome della sessione non è in
-esecuzione**: modificare `Local State` a caldo verrebbe sovrascritto all'uscita. In quel caso
-l'helper lascia il lavoro alla policy, che è comunque vincolante.
+The `ash.shelf.*` preferences are written into existing profiles
+(`/home/chronos/u-*/Local State`) **only if the Chrome process of the session is not
+running**: modifying `Local State` while hot would be overwritten on exit. In that case
+the helper leaves the job to the policy, which is binding anyway.
 
-Opzioni:
+Options:
 
 ```
---conf FILE            file INI della Dock (default /usr/share/prismos/ash-shelf.conf)
---shelf-json PATH      shelf.json da usare (ripetibile)
+--conf FILE            INI file of the dock (default /usr/share/prismos/ash-shelf.conf)
+--shelf-json PATH      shelf.json to use (repeatable)
 --alignment Bottom|Left|Right
 --autohide Always|Never|OnFullScreen
 --icon-size N          24-96 px
 --squircle F           0.00-0.50
---pin-max N            massimo numero di icone bloccate
---policy-only          scrive solo la policy
---prefs-only           scrive solo i pref Ash
---icons-only           rigenera solo il tema di icone
---verify               verifica la policy installata ed esce (0 conforme, 1 no)
+--pin-max N            maximum number of pinned icons
+--policy-only          writes only the device policy
+--prefs-only           writes only the Ash prefs
+--icons-only           regenerates only the icon theme
+--verify               verifies the installed policy and exits (0 conforming, 1 not)
 ```
 
-## 4. `prismos-dock`, il comando utente
+## 4. `prismos-dock`, the user command
 
-`/usr/bin/prismos-dock` è il wrapper interattivo (bash) dell'helper:
+`/usr/bin/prismos-dock` is the interactive (bash) wrapper of the helper:
 
 ```bash
-prismos-dock show                       # configurazione effettiva e provenienza
-prismos-dock verify                     # esito 0/1, utilizzabile negli script
-prismos-dock status                     # unità, policy, tema icone, daemon acceleratori
-prismos-dock apply                      # riapplica policy + pref + icone
+prismos-dock show                       # effective configuration and provenance
+prismos-dock verify                     # exit code 0/1, usable in scripts
+prismos-dock status                     # unit, policy, icon theme, accelerator daemon
+prismos-dock apply                      # re-apply policy + prefs + icons
 prismos-dock apply --icon-size 40 --pin-max 6
 prismos-dock policy --alignment Bottom --autohide Always
 prismos-dock prefs
 prismos-dock icons
 ```
 
-Il wrapper valida gli argomenti prima di invocare l'helper (`--alignment` accetta solo
-`Bottom|Left|Right`, `--icon-size` solo interi 24-96, `--squircle` solo decimali 0.00-0.50,
-`--pin-max` solo interi 1-24) e gestisce i privilegi: se `POLICY_DIR` non è scrivibile usa
-`sudo -n` quando le credenziali sono già in cache, altrimenti `sudo` interattivo, e avverte
-esplicitamente se nessuno dei due è possibile invece di produrre una scrittura parziale.
+The wrapper validates arguments before invoking the helper (`--alignment` accepts only
+`Bottom|Left|Right`, `--icon-size` only integers 24-96, `--squircle` only decimals
+0.00-0.50, `--pin-max` only integers 1-24) and handles privileges: if `POLICY_DIR` is not
+writable it uses `sudo -n` when credentials are already cached, otherwise interactive
+`sudo`, and explicitly warns when neither is possible instead of producing a partial
+write.
 
 ## 5. `ash-shelf.conf`
 
-Configurazione dichiarativa in formato INI, `/usr/share/prismos/ash-shelf.conf`:
+Declarative configuration in INI format, `/usr/share/prismos/ash-shelf.conf`:
 
 ```ini
 [dock]
@@ -199,115 +200,113 @@ web_search_accelerator = super+shift+space
 lock_accelerator = super+l
 ```
 
-`magnification_on_hover = False` è una scelta deliberata: l'ingrandimento al passaggio del
-mouse è l'effetto più riconoscibile di macOS, ma su Intel HD Gen5 impone la ricomposizione
-dell'intera shelf a ogni movimento del puntatore. È disponibile come parametro, non come
-comportamento predefinito.
+`magnification_on_hover = False` is a deliberate choice: hover magnification is the most
+recognizable macOS effect, but on Intel HD Gen5 it forces recomposition of the whole
+shelf at every pointer movement. It is available as a parameter, not as default
+behaviour.
 
-## 6. Tema di icone squircle
+## 6. Squircle icon theme
 
-`scripts/generate_app_icons.sh` genera 33 icone vettoriali (25 applicazioni del pool + 8 di
-sistema) in `overlays/overlay-amd64-prismos/board/usr/share/icons/prismOS-Squircle/`:
+`scripts/generate_app_icons.sh` generates 33 vector icons (25 pool applications + 8
+system ones) in `overlays/overlay-amd64-prismos/board/usr/share/icons/prismOS-Squircle/`:
 
 ```
-apps/scalable/<id>.svg     icona dell'applicazione
-index.theme                tema XDG con Inherits=hicolor
-AUTHORS, LICENSE           attribuzione e licenza MIT del tema
+apps/scalable/<id>.svg     application icon
+index.theme                XDG theme with Inherits=hicolor
+AUTHORS, LICENSE           attribution and MIT license of the theme
 ```
 
-Geometria di ogni icona:
+Geometry of each icon:
 
-* **maschera**: superellisse |x/a|ⁿ + |y/a|ⁿ = 1 campionata su 128 punti, con n = 5.0
-  (`squircle_exponent`) e raggio di arrotondamento pari al 28% del lato
-  (`squircle_radius`): è la forma introdotta da macOS Big Sur, intermedia fra il quadrato e
-  il cerchio;
-* **fondo**: gradiente verticale derivato dal colore del marchio dichiarato in
-  `app_pool.json` (`color`), con schiarimento superiore del 12% e scurimento inferiore del
-  18%;
-* **lucidatura**: ellisse superiore bianca al 18% di opacità, senza filtri SVG (i filtri
-  `feGaussianBlur` costerebbero rasterizzazione su Gen5);
-* **glifo**: due caratteri (`glyph` in `app_pool.json`) centrati, in bianco con leggera
-  ombra, perché i loghi ufficiali non sono ridistribuibili.
+* **mask**: superellipse |x/a|ⁿ + |y/a|ⁿ = 1 sampled on 128 points, with n = 5.0
+  (`squircle_exponent`) and rounding radius equal to 28% of the side
+  (`squircle_radius`): the shape introduced by macOS Big Sur, intermediate between
+  square and circle;
+* **background**: vertical gradient derived from the brand colour declared in
+  `app_pool.json` (`color`), with 12% top lightening and 18% bottom darkening;
+* **gloss**: top white ellipse at 18% opacity, without SVG filters (`feGaussianBlur`
+  filters would cost rasterization on Gen5);
+* **glyph**: two characters (`glyph` in `app_pool.json`) centred, in white with a slight
+  shadow, because official logos are not redistributable.
 
-Il tracciato è definito una sola volta e riusato con `<use href>`: il file resta sotto i
-2 KiB e il compositore Ash lo ridimensiona senza costi misurabili. Nessuna bitmap viene
-generata, quindi nessuna dipendenza da librerie di rasterizzazione in fase di build.
+The path is defined once and reused with `<use href>`: the file stays under 2 KiB and the
+Ash compositor resizes it without measurable cost. No bitmap is generated, therefore no
+dependency on rasterization libraries at build time.
 
 ```bash
-./scripts/generate_app_icons.sh                        # tema completo
-./scripts/generate_app_icons.sh --list                 # elenco delle icone previste
+./scripts/generate_app_icons.sh                        # complete theme
+./scripts/generate_app_icons.sh --list                 # list of planned icons
 ./scripts/generate_app_icons.sh --shape rounded-rect --radius 0.22
 ./scripts/generate_app_icons.sh --exponent 4.0 --size 256
 ./scripts/generate_app_icons.sh --only netflix,spotify
 ./scripts/generate_app_icons.sh --preview build/preview.svg
-./scripts/generate_app_icons.sh --validate             # coerenza con app_pool.json
-./scripts/generate_app_icons.sh --force                # sovrascrive anche icone esistenti
+./scripts/generate_app_icons.sh --validate             # consistency with app_pool.json
+./scripts/generate_app_icons.sh --force                # overwrites existing icons too
 ```
 
-`build_iso.sh` genera il tema automaticamente se la board overlay ne è sprovvista, così una
-repository clonata da zero produce comunque immagini con le icone corrette.
+`build_iso.sh` generates the theme automatically if the board overlay lacks it, so a
+freshly cloned repository still produces images with the correct icons.
 
-## 7. Launcher centralizzato e scorciatoie globali
+## 7. Central launcher and global shortcuts
 
-Ash riconosce nativamente il tasto **Search** (`KEY_SEARCH`) dei Chromebook per aprire il
-launcher. prismOS non applica patch a Chromium: intercetta la tastiera a livello evdev e
-**iniezione via uinput** le combinazioni che Ash già comprende.
+Ash natively recognizes the Chromebook **Search** key (`KEY_SEARCH`) to open the launcher.
+prismOS applies no patches to Chromium: it grabs the keyboard at evdev level and
+**injects via uinput** the combinations Ash already understands.
 
 `prismos-accelerator-daemon` (`/usr/libexec/prismos/`):
 
-* apre i dispositivi `/dev/input/event*` con `EVIOCGRAB` (cattura esclusiva, così la
-  combinazione non arriva due volte), filtrati da `device_filter` in
+* opens `/dev/input/event*` devices with `EVIOCGRAB` (exclusive grab, so the combination
+  does not arrive twice), filtered by `device_filter` in
   `/usr/share/prismos/accelerators.json`;
-* ricostruisce le combinazioni da `keys`/`command` e le traduce in eventi uinput con un
-  ritardo di `inject_delay_ms = 8` ms fra i tasti, sufficiente perché Ash riconosca la
-  sequenza come combinazione e non come due pressioni distinte;
-* richiede `SupplementaryGroups=input` e accesso a `/dev/uinput`.
+* rebuilds combinations from `keys`/`command` and translates them into uinput events with
+  a delay of `inject_delay_ms = 8` ms between keys, sufficient for Ash to recognize the
+  sequence as a combination and not as two separate presses;
+* requires `SupplementaryGroups=input` and access to `/dev/uinput`.
 
-Le dodici combinazioni di `/usr/share/prismos/accelerators.json`:
+The twelve combinations of `/usr/share/prismos/accelerators.json`:
 
-| `id` | Combinazione | Azione | Effetto |
+| `id` | Combination | Action | Effect |
 |---|---|---|---|
-| `app_launcher_primary` | `super+space` | `inject_keys KEY_SEARCH` | launcher in stile Spotlight |
-| `app_launcher` | `super+shift+space` | `inject_keys KEY_LEFTMETA KEY_SEARCH` | ricerca web diretta |
-| `lock_screen` | `super+l` | `inject_combo KEY_SEARCH KEY_L` | blocca lo schermo |
-| `show_desktop` | `super+d` | `inject_combo KEY_SEARCH KEY_D` | riduce tutte le finestre |
-| `window_overview` | `super+w` | `inject_keys KEY_WWW` | panoramica delle finestre |
-| `screenshot_full` | `super+print` | `inject_combo Ctrl+Meta+SysRq` | cattura schermo intero |
-| `switch_app_1..4` | `super+1..4` | `inject_combo Meta+N` | passa all'N-esima icona bloccata |
-| `subsystem_status` | `super+ctrl+s` | `exec prismos-slim-launcher status` | stato dei sottosistemi e RAM libera |
-| `subsystem_stop_all` | `super+ctrl+q` | `exec prismos-slim-launcher stop-all` | spegne Waydroid e Wine |
+| `app_launcher_primary` | `super+space` | `inject_keys KEY_SEARCH` | Spotlight-style launcher |
+| `app_launcher` | `super+shift+space` | `inject_keys KEY_LEFTMETA KEY_SEARCH` | direct web search |
+| `lock_screen` | `super+l` | `inject_combo KEY_SEARCH KEY_L` | locks the screen |
+| `show_desktop` | `super+d` | `inject_combo KEY_SEARCH KEY_D` | minimizes all windows |
+| `window_overview` | `super+w` | `inject_keys KEY_WWW` | window overview |
+| `screenshot_full` | `super+print` | `inject_combo Ctrl+Meta+SysRq` | full screen capture |
+| `switch_app_1..4` | `super+1..4` | `inject_combo Meta+N` | switches to the Nth pinned icon |
+| `subsystem_status` | `super+ctrl+s` | `exec prismos-slim-launcher status` | subsystem state and free RAM |
+| `subsystem_stop_all` | `super+ctrl+q` | `exec prismos-slim-launcher stop-all` | turns off Waydroid and Wine |
 
-Le ultime due non iniettano tasti: eseguono direttamente un comando, e sono il ponte fra
-l'interfaccia e il meccanismo on-demand di Slim.
+The last two do not inject keys: they execute a command directly, and they are the bridge
+between the interface and Slim's on-demand mechanism.
 
 ```bash
-prismos-accelerators --list          # combinazioni registrate
-prismos-accelerators --list-devices  # dispositivi di input individuati
+prismos-accelerators --list          # registered combinations
+prismos-accelerators --list-devices  # detected input devices
 prismos-accelerators --config /usr/share/prismos/accelerators.json
-prismos-accelerators --no-grab       # ascolto senza cattura esclusiva (diagnosi)
+prismos-accelerators --no-grab       # listening without exclusive grab (diagnostics)
 systemctl status prismos-accelerator-daemon
 journalctl -t prismos-accelerators
 ```
 
-Per aggiungere una scorciatoia è sufficiente una nuova voce nel JSON (`id`, `trigger`,
-`action`, `keys` oppure `command`, `description`) e un riavvio del daemon: nessuna
-ricompilazione.
+Adding a shortcut only requires a new entry in the JSON (`id`, `trigger`, `action`,
+`keys` or `command`, `description`) and a daemon restart: no recompilation.
 
-## 8. Verifica e diagnosi
+## 8. Verification and diagnostics
 
 ```bash
 prismos-dock status && prismos-dock verify
 cat /etc/chromium/policies/managed/zz-prismos-dock.json | python3 -m json.tool
 grep -o '"ash.shelf[^,]*' /home/chronos/u-*/Local\ State
-gtk-query-icon-theme 2>/dev/null || ls /usr/share/icons/prismOS-Squircle/apps/scalable | wc -l
+ls /usr/share/icons/prismOS-Squircle/apps/scalable | wc -l
 ```
 
-| Sintomo | Causa | Rimedio |
+| Symptom | Cause | Remedy |
 |---|---|---|
-| Shelf a sinistra o visibile | policy assente o sovrascritta da un'altra policy caricata dopo | `prismos-dock verify`; controllare il prefisso `zz-` e l'ordine lessicografico in `managed/` |
-| Le icone non sono quadrate arrotondate | tema non selezionato | verificare `index.theme`, `Inherits=` e la presenza degli SVG; `prismos-dock icons` |
-| Le PWA non compaiono al primo accesso | `WebAppInstallForceList` senza rete | le voci richiedono connettività al primo avvio; in aula precaricare la policy con `--sync-only` e un avvio con rete |
-| `super+space` non fa nulla | daemon arrestato o senza accesso a `/dev/input` | `systemctl status prismos-accelerator-daemon`, gruppo `input`, permessi su `/dev/uinput` |
-| `super+space` apre due volte il launcher | cattura evdev non esclusiva (un altro processo legge la tastiera) | verificare `grab_devices: true` in `accelerators.json` |
-| Le preferenze cambiano ma tornano indietro | `Local State` riscritto da Chrome a fine sessione | atteso: la policy è l'unico livello persistente; `prismos-dock policy` |
-| Animazioni a scatti in Slim | blur e animazioni attive su Gen5 | `SHELF_ANIMATIONS=0`, `SHELF_BACKGROUND_BLUR=0` in `profiles/slim.conf` |
+| Shelf on the left or visible | policy missing or overwritten by a policy loaded later | `prismos-dock verify`; check the `zz-` prefix and lexicographic order in `managed/` |
+| Icons are not rounded squares | theme not selected | check `index.theme`, `Inherits=` and SVG presence; `prismos-dock icons` |
+| PWAs do not appear at first login | `WebAppInstallForceList` without network | entries require connectivity at first boot; preload the policy with `--sync-only` and a networked boot |
+| `super+space` does nothing | daemon stopped or without access to `/dev/input` | `systemctl status prismos-accelerator-daemon`, `input` group, `/dev/uinput` permissions |
+| `super+space` opens the launcher twice | non-exclusive evdev grab (another process reads the keyboard) | check `grab_devices: true` in `accelerators.json` |
+| Preferences change but revert | `Local State` rewritten by Chrome at session end | expected: policy is the only persistent level; `prismos-dock policy` |
+| Jerky animations on Slim | blur and animations active on Gen5 | `SHELF_ANIMATIONS=0`, `SHELF_BACKGROUND_BLUR=0` in `profiles/slim.conf` |

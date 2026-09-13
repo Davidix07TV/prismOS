@@ -1,0 +1,326 @@
+# =============================================================================
+#  prismOS build workflow
+# -----------------------------------------------------------------------------
+#  Two jobs:
+#
+#    validate  - runs on any GitHub-hosted runner: syntax, JSON, schema, ISA
+#                floor of the repository, icon theme and the complete
+#                pre-compilation pipeline (overlay sync) for every edition,
+#                against a stub cros_sdk. Fast (minutes) and free.
+#
+#    build     - runs the REAL ChromiumOS compilation (setup_board,
+#                build_packages, build_image) and uploads the image.
+#                ChromiumOS needs >= 150 GB of disk, >= 8 GB of RAM and a
+#                cros_sdk chroot: GitHub-hosted standard runners (14 GB disk
+#                ephemeral, no KVM) CANNOT do it. Target therefore:
+#                  * a self-hosted runner with the ChromiumOS checkout already
+#                    synced (recommended: label "prismos-builder"), or
+#                  * a GitHub large runner (e.g. ubuntu-24.04-32-cores-128gb
+#                    with increased disk), accepting multi-hour sync times.
+#                The job fails fast with a clear message when the host does
+#                not meet the requirements, instead of dying mid-build.
+#
+#  Trigger: manual (workflow_dispatch) only. A ChromiumOS build is too
+#  expensive for push-triggered runs.
+# =============================================================================
+
+name: build-prismos
+
+on:
+  workflow_dispatch:
+    inputs:
+      edition:
+        description: "Edition to build (pro = all-in-one, choice at first setup)"
+        required: true
+        default: "pro"
+        type: choice
+        options:
+          - pro
+          - edu
+          - home
+          - work
+          - slim
+          - all
+      image_type:
+        description: "build_image type"
+        required: true
+        default: "dev"
+        type: choice
+        options:
+          - dev
+          - base
+          - test
+      jobs:
+        description: "Parallelism for build_packages (0 = nproc)"
+        required: false
+        default: "0"
+        type: string
+      runner_label:
+        description: "Runner label for the build job (self-hosted or large runner)"
+        required: true
+        default: "prismos-builder"
+        type: string
+      chromiumos_path:
+        description: "Path of an existing ChromiumOS checkout on the runner (empty = sync from scratch)"
+        required: false
+        default: "${{ github.workspace }}/../../chromiumos"
+        type: string
+      upload_image:
+        description: "Upload the .img as a workflow artifact (large: several GB)"
+        required: true
+        default: true
+        type: boolean
+      provision_waydroid:
+        description: "Provision the Waydroid x86 images into the artifact staging (needs network)"
+        required: true
+        default: false
+        type: boolean
+
+# One build at a time per branch: a second concurrent ChromiumOS build on the
+# same runner would exhaust disk and ccache.
+concurrency:
+  group: build-prismos-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  PRISMOS_REPO_DIR: prismOS
+
+jobs:
+  # ---------------------------------------------------------------------------
+  validate:
+    name: Validate sources and pre-compilation pipeline
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout prismOS
+        uses: actions/checkout@v4
+
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            bash jq python3 binutils xz-utils unzip zip file
+
+      - name: Bash syntax of every script
+        run: |
+          fail=0
+          while IFS= read -r -d '' f; do
+            if head -1 "$f" | grep -q 'usr/bin/env bash'; then
+              bash -n "$f" || { echo "::error file=$f::syntax error"; fail=1; }
+            fi
+          done < <(find scripts overlays -type f -print0)
+          exit "$fail"
+
+      - name: Python modules compile
+        run: |
+          python3 -m py_compile scripts/lib/isa_arc_probe.py
+          python3 -m py_compile overlays/overlay-prismos-common/app-misc/prismos-dock/files/prismos-dock-apply
+          python3 -m py_compile overlays/overlay-prismos-pro/files/usr/libexec/prismos/prismos-edition-setup 2>/dev/null || true
+
+      - name: JSON validity and app pool schema
+        run: |
+          python3 - <<'PY'
+          import json, pathlib, sys
+          bad = []
+          for f in pathlib.Path(".").rglob("*.json"):
+              if ".git" in f.parts:
+                  continue
+              try:
+                  json.load(open(f, encoding="utf-8"))
+              except Exception as exc:
+                  bad.append(f"{f}: {exc}")
+          if bad:
+              print("\n".join(bad)); sys.exit(1)
+          pool = json.load(open("profiles/app_pool.json", encoding="utf-8"))
+          ids = {a["id"] for a in pool["applications"]}
+          for ed, bundle in pool["flavor_bundles"].items():
+              unknown = set(bundle.get("preselected", [])) - ids
+              unknown |= set(bundle.get("default_pinned", [])) - ids
+              if unknown:
+                  print(f"bundle {ed}: unknown ids {sorted(unknown)}"); sys.exit(1)
+          print(f"JSON ok, pool={len(ids)} apps, bundles={len(pool['flavor_bundles'])}")
+          PY
+
+      - name: Repository ISA floor and profile consistency
+        run: ./scripts/verify_legacy_cpu.sh --config
+
+      - name: Icon theme consistency with the app pool
+        run: ./scripts/generate_app_icons.sh --validate
+
+      - name: Pre-compilation pipeline for every edition (stub cros_sdk)
+        run: |
+          # The stub satisfies cros_sdk detection so sync_overlays and
+          # build_iso.sh --sync-only exercise the real code paths: profiles,
+          # app selection, shelf.json, edition.conf, board overlay, policies,
+          # PRO edition templates and kernel splitconfig.
+          mkdir -p /tmp/stub-sdk/cros_sdk /tmp/stub-sdk/src/overlays \
+                   /tmp/stub-sdk/src/third_party/kernel/v6.1/chromeos/config/chromiumos-x86_64/chromiumos-x86_64
+          printf '#!/bin/sh\nexit 0\n' > /tmp/stub-sdk/cros_sdk/cros_sdk
+          chmod +x /tmp/stub-sdk/cros_sdk/cros_sdk
+          for ed in edu home work slim pro; do
+            echo "::group::sync ${ed}"
+            ./scripts/build_iso.sh "${ed}" --bundle --sync-only \
+              --sdk-dir /tmp/stub-sdk/cros_sdk
+            echo "::endgroup::"
+          done
+          ./scripts/sync_overlays.sh --check --edition pro --sdk-dir /tmp/stub-sdk/cros_sdk
+
+      - name: PRO edition chooser self-test
+        run: |
+          cs=overlays/overlay-prismos-pro/files/usr/libexec/prismos/prismos-edition-setup
+          root="$(mktemp -d)"
+          mkdir -p "${root}/etc/prismos" "${root}/state" "${root}/editions"
+          for ed in edu home work slim; do
+            mkdir -p "${root}/editions/${ed}/etc/prismos"
+            printf 'EDITION_ID="%s"\n' "${ed}" \
+              > "${root}/editions/${ed}/etc/prismos/edition.conf"
+          done
+          cat > "${root}/etc/prismos/pro.conf" <<EOF
+          PRO_EDITION_TEMPLATES="${root}/editions"
+          PRO_CHOICE_STAMP="${root}/state/edition-choice.done"
+          PRO_CHOOSER_PRESEED="${root}/etc/prismos/edition-choice"
+          PRO_CHOOSER_CONSOLE="${root}/console"
+          PRO_CHOOSER_DEFAULT="home"
+          EOF
+          export PRISMOS_PRO_CONF="${root}/etc/prismos/pro.conf"
+          export PRISMOS_EDITION_CONF="${root}/etc/prismos/edition.conf"
+          printf 'work\n' > "${root}/etc/prismos/edition-choice"
+          bash "${cs}"
+          grep -q 'EDITION_ID="work"' "${root}/etc/prismos/edition.conf"
+          bash "${cs}" --show
+          bash "${cs}" --rechoose
+          rm -f "${root}/etc/prismos/edition-choice"
+          bash "${cs}"
+          grep -q 'EDITION_ID="home"' "${root}/etc/prismos/edition.conf"
+          echo "chooser self-test passed"
+
+  # ---------------------------------------------------------------------------
+  build:
+    name: Build prismOS image (${{ inputs.edition }})
+    needs: validate
+    runs-on: ${{ inputs.runner_label }}
+    timeout-minutes: 1440
+    steps:
+      - name: Checkout prismOS
+        uses: actions/checkout@v4
+        with:
+          path: ${{ env.PRISMOS_REPO_DIR }}
+
+      - name: Verify build host requirements
+        shell: bash
+        run: |
+          gb="$(df -BG --output=avail "$GITHUB_WORKSPACE" | tail -1 | tr -dc '0-9')"
+          ram_mb="$(awk '/MemAvailable/{printf "%d", $2/1024}' /proc/meminfo)"
+          cores="$(nproc)"
+          echo "disk available: ${gb} GiB; RAM available: ${ram_mb} MiB; cores: ${cores}"
+          if [[ "${gb}" -lt 150 ]]; then
+            echo "::error::ChromiumOS builds need >= 150 GiB free (found ${gb}). Use a self-hosted runner or a GitHub large runner with increased disk."
+            exit 1
+          fi
+          if [[ "${ram_mb}" -lt 7000 ]]; then
+            echo "::error::ChromiumOS builds need >= 8 GiB RAM (found ${ram_mb} MiB available)."
+            exit 1
+          fi
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            bash jq python3 binutils xz-utils unzip zip file curl \
+            binutils-x86-64-linux-gnu python3-setuptools
+
+      - name: Locate or bootstrap the ChromiumOS checkout
+        id: cros
+        shell: bash
+        env:
+          CROS_PATH: ${{ inputs.chromiumos_path }}
+        run: |
+          if [[ -n "${CROS_PATH}" && -x "${CROS_PATH}/cros_sdk" ]]; then
+            echo "path=${CROS_PATH}" >> "$GITHUB_OUTPUT"
+            echo "bootstrapped=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          target="${HOME}/chromiumos"
+          if [[ ! -d "${target}/src" ]]; then
+            echo "::warning::No ChromiumOS checkout found: running repo init/sync. This takes hours and ~100 GiB on a cold runner; prefer a persistent self-hosted runner."
+            sudo apt-get install -y --no-install-recommends repo git
+            mkdir -p "${target}"
+            git config --global user.email "prismos-ci@users.noreply.github.com"
+            git config --global user.name "prismOS CI"
+            repo init --depth=1 \
+              -u https://chromium.googlesource.com/chromiumos/manifest.git \
+              -b release-R126-15886.B \
+              --groups=all \
+              --repo-verify=none
+            repo sync -j"$(nproc)" --no-tags --no-clone-bundle --optimized-fetch
+          fi
+          echo "path=${target}" >> "$GITHUB_OUTPUT"
+          echo "bootstrapped=true" >> "$GITHUB_OUTPUT"
+        working-directory: ${{ github.workspace }}
+
+      - name: Publish prismOS overlays into the checkout
+        shell: bash
+        env:
+          CROS_PATH: ${{ steps.cros.outputs.path }}
+        run: |
+          mkdir -p "${CROS_PATH}/src/overlays"
+          ln -sfn "${GITHUB_WORKSPACE}/${PRISMOS_REPO_DIR}" \
+            "${CROS_PATH}/src/overlays/prismOS"
+
+      - name: Build image
+        shell: bash
+        env:
+          CROS_PATH: ${{ steps.cros.outputs.path }}
+          EDITION: ${{ inputs.edition }}
+          IMAGE_TYPE: ${{ inputs.image_type }}
+          JOBS: ${{ inputs.jobs }}
+        run: |
+          cd "${GITHUB_WORKSPACE}/${PRISMOS_REPO_DIR}"
+          args=(--bundle --image-type "${IMAGE_TYPE}" --sdk-dir "${CROS_PATH}/cros_sdk")
+          if [[ "${JOBS}" != "0" ]]; then args+=(--jobs "${JOBS}"); fi
+          ./scripts/build_iso.sh "${EDITION}" "${args[@]}"
+
+      - name: Provision Waydroid images (optional)
+        if: inputs.provision_waydroid
+        shell: bash
+        env:
+          EDITION: ${{ inputs.edition }}
+        run: |
+          cd "${GITHUB_WORKSPACE}/${PRISMOS_REPO_DIR}"
+          ed="${EDITION}"
+          [[ "${ed}" == "all" ]] && ed="pro"
+          sudo ./scripts/provision_waydroid_image.sh --edition "${ed}" \
+            --images-dir "${GITHUB_WORKSPACE}/waydroid-images"
+
+      - name: Summarize artifacts
+        shell: bash
+        run: |
+          cd "${GITHUB_WORKSPACE}/${PRISMOS_REPO_DIR}"
+          ls -l output/ || true
+          for f in output/*.img.info; do
+            [[ -e "$f" ]] || continue
+            echo "::group::$(basename "$f")"
+            cat "$f"
+            echo "::endgroup::"
+          done
+
+      - name: Upload image and reports
+        if: inputs.upload_image
+        uses: actions/upload-artifact@v4
+        with:
+          name: prismOS-${{ inputs.edition }}-${{ github.run_number }}
+          path: |
+            ${{ github.workspace }}/prismOS/output/prismOS_*_legacy.img
+            ${{ github.workspace }}/prismOS/output/prismOS_*_legacy.img.info
+            ${{ github.workspace }}/prismOS/output/prismOS_*_legacy.isa-report.txt
+            ${{ github.workspace }}/prismOS/output/prismOS_*_legacy.isa-report.json
+            ${{ github.workspace }}/prismOS/output/prismOS_*_legacy.shelf.json
+            ${{ github.workspace }}/prismOS/output/prismOS_*_legacy.edition.conf
+          retention-days: 7
+          if-no-files-found: warn
+
+      - name: Upload build logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: prismOS-build-logs-${{ github.run_number }}
+          path: ${{ github.workspace }}/prismOS/build/logs/
+          retention-days: 14
+          if-no-files-found: ignore

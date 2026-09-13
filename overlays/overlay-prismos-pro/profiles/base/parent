@@ -1,0 +1,4 @@
+# Parent profile of the prismOS pro edition (uppercase: PRO).
+# It inherits the ISA floor and the common USE from prismos-common:base, which
+# in turn inherits from chromiumos (see overlay-prismos-common/profiles/base/parent).
+prismos-common:base
