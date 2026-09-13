@@ -93,7 +93,7 @@ Due strade alternative, mai entrambe:
   incognito e developer tools disabilitati; ARC e VM vietati.
 
 Lo strumento di gestione è `scripts/set_edu_policy.sh` (sezione
-[Policy scolastiche (EDU)](../README.md#policy-scolastiche-edu) del README).
+[School policy (EDU)](../README.md#edu-policy) del README).
 
 ### 3.3 Rootfs di edizione
 
