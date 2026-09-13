@@ -204,8 +204,8 @@ parse_args() {
 			[[ -n "${ARG_BOARD}" ]] || die 2 "--board richiede il nome del board"
 			if [[ -d "/build/${ARG_BOARD}" ]]; then
 				ARG_TARGET="/build/${ARG_BOARD}"
-			elif [[ -n "${PRISMOS_SDK_RESOLVED:-}" && -d "$(dirname "${PRISMOS_SDK_RESOLVED}")/chroot/build/${ARG_BOARD}" ]]; then
-				ARG_TARGET="$(dirname "${PRISMOS_SDK_RESOLVED}")/chroot/build/${ARG_BOARD}"
+			elif [[ -n "${PRISMOS_SDK_RESOLVED:-}" && -d "${PRISMOS_SDK_RESOLVED}/chroot/build/${ARG_BOARD}" ]]; then
+				ARG_TARGET="${PRISMOS_SDK_RESOLVED}/chroot/build/${ARG_BOARD}"
 			elif [[ -d "${HOME}/chromiumos/chroot/build/${ARG_BOARD}" ]]; then
 				ARG_TARGET="${HOME}/chromiumos/chroot/build/${ARG_BOARD}"
 			else

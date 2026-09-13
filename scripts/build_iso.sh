@@ -136,7 +136,8 @@ ARGOMENTO OBBLIGATORIO
   all            costruisce in sequenza edu, home, work e slim
 
 OPZIONI
-  --sdk-dir DIR        percorso del cros_sdk (default: \${CROS_SDK_DIR} oppure
+  --sdk-dir DIR        radice del checkout ChromiumOS (con cros_sdk e src/) o
+                       percorso dell'eseguibile cros_sdk (default: \${CROS_SDK_DIR} oppure
                        ${PRISMOS_DEFAULT_SDK})
   --board NOME         board ChromiumOS (default: ${PRISMOS_DEFAULT_BOARD})
   --repo-mount PATH    percorso della repository visto da DENTRO il chroot
@@ -169,7 +170,7 @@ FILE GENERATI
 
 ESEMPI
   ${PROG} slim
-  ${PROG} edu --apps 1,3,5 --sdk-dir ~/chromiumos/cros_sdk
+  ${PROG} edu --apps 1,3,5 --sdk-dir ~/chromiumos
   ${PROG} home --bundle --jobs 8
   ${PROG} all --bundle --dry-run
 USAGE
@@ -1174,7 +1175,7 @@ prismos_sdk_overlays_dir() {
 		return 0
 	fi
 	[[ -n "${PRISMOS_SDK_RESOLVED:-}" ]] || return 1
-	printf '%s' "$(dirname "${PRISMOS_SDK_RESOLVED}")/src/overlays"
+	printf '%s' "${PRISMOS_SDK_RESOLVED}/src/overlays"
 }
 
 # =============================================================================
@@ -1311,7 +1312,7 @@ collect_image() {
 	if prismos_in_chroot; then
 		img_dirs+=("/mnt/host/source/src/build/images/${ARG_BOARD}/latest")
 	elif [[ -n "${PRISMOS_SDK_RESOLVED}" ]]; then
-		img_dirs+=("$(dirname "${PRISMOS_SDK_RESOLVED}")/src/build/images/${ARG_BOARD}/latest")
+		img_dirs+=("${PRISMOS_SDK_RESOLVED}/src/build/images/${ARG_BOARD}/latest")
 	fi
 	img_dirs+=("${STAGING_DIR}/image")
 

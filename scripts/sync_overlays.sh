@@ -158,8 +158,8 @@ resolve_paths() {
 		SDK_OVERLAYS="/mnt/host/source/src/overlays"
 		SDK_KERNEL_ROOT="/mnt/host/source/src/third_party/kernel"
 	elif PRISMOS_SDK_RESOLVED="$(prismos_resolve_sdk "${ARG_SDK_DIR}")"; then
-		SDK_OVERLAYS="$(dirname "${PRISMOS_SDK_RESOLVED}")/src/overlays"
-		SDK_KERNEL_ROOT="$(dirname "${PRISMOS_SDK_RESOLVED}")/src/third_party/kernel"
+		SDK_OVERLAYS="${PRISMOS_SDK_RESOLVED}/src/overlays"
+		SDK_KERNEL_ROOT="${PRISMOS_SDK_RESOLVED}/src/third_party/kernel"
 	else
 		PRISMOS_SDK_RESOLVED=""
 		SDK_OVERLAYS=""

@@ -405,18 +405,43 @@ prismos_in_chroot() {
 }
 
 # Risolve la directory del cros_sdk (argomento > variabile d'ambiente > default).
+# prismos_resolve_sdk CANDIDATE
+# Normalizza --sdk-dir e restituisce la RADICE del checkout ChromiumOS, cioe'
+# la directory che contiene l'eseguibile cros_sdk e src/overlays. Layout
+# accettati:
+#   1. percorso dell'eseguibile cros_sdk        -> dirname (checkout reale)
+#   2. radice del checkout (<root>/cros_sdk + <root>/src)
+#   3. layout legacy/stub (<root>/cros_sdk/ directory con dentro l'eseguibile
+#      e <root>/src accanto)                    -> dirname
+#   4. solo <root>/cros_sdk eseguibile, src non ancora sincronizzato
 prismos_resolve_sdk() {
 	local candidate="${1:-}"
 	if [[ -z "${candidate}" ]]; then
 		candidate="${PRISMOS_SDK_DIR:-${CROS_SDK_DIR:-${PRISMOS_DEFAULT_SDK}}}"
 	fi
-	if [[ ! -d "${candidate}" ]]; then
-		return 1
+	[[ -n "${candidate}" ]] || return 1
+	# 1. path diretto all'eseguibile cros_sdk
+	if [[ -x "${candidate}" && ! -d "${candidate}" ]]; then
+		candidate="$(dirname "${candidate}")"
 	fi
-	if [[ ! -x "${candidate}/cros_sdk" ]]; then
-		return 1
+	[[ -d "${candidate}" ]] || return 1
+	# 2. layout reale: radice con cros_sdk eseguibile e src/
+	if [[ -x "${candidate}/cros_sdk" && -d "${candidate}/src" ]]; then
+		printf '%s' "$(cd "${candidate}" && pwd)"
+		return 0
 	fi
-	printf '%s' "$(cd "${candidate}" && pwd)"
+	# 3. layout legacy/stub: <candidate>/cros_sdk e' l'eseguibile e src/ sta
+	#    accanto a candidate (harness CI: <root>/cros_sdk/cros_sdk + <root>/src)
+	if [[ -x "${candidate}/cros_sdk" && -d "$(dirname "${candidate}")/src" ]]; then
+		printf '%s' "$(cd "$(dirname "${candidate}")" && pwd)"
+		return 0
+	fi
+	# 4. cros_sdk presente ma src non ancora sincronizzato
+	if [[ -x "${candidate}/cros_sdk" ]]; then
+		printf '%s' "$(cd "${candidate}" && pwd)"
+		return 0
+	fi
+	return 1
 }
 
 # Esegue un comando dentro il chroot (o direttamente se gia' dentro).

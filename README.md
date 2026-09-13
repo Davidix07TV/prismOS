@@ -326,6 +326,13 @@ then run **Actions → build-prismos → Run workflow** with `edition=pro`,
 `runner_label=prismos-builder` and `chromiumos_path=/opt/chromiumos`.
 Full guide: [`docs/build-runner.md`](docs/build-runner.md).
 
+No Linux machine at hand? GitHub-hosted runners **cannot** run the full build
+(6-hour cap per job, 14 GB disk, 10 GB cache; larger runners require a Team
+plan and are billed even on public repos): [`docs/build-cloud.md`](docs/build-cloud.md)
+walks through the two working routes — an hourly cloud builder (a few euros,
+driven entirely from Windows over SSH) and a VirtualBox VM, which is *not* a
+dual boot and touches no partition.
+
 </div>
 
 ---
@@ -610,7 +617,8 @@ reliable. This is a hardware limit, not a fixable configuration.
 | [`docs/waydroid-integration.md`](docs/waydroid-integration.md) | Android x86 container, ART properties, `ISA_FLOOR` marker, unit lifecycle |
 | [`docs/wine-integration.md`](docs/wine-integration.md) | Wine/Proton/Bottles on Gen5 without Vulkan, MIME types, prefixes, kernel |
 | [`docs/dock-and-launcher.md`](docs/dock-and-launcher.md) | macOS-like shelf, `shelf.json`, policies, squircle theme, global accelerators |
-| [`docs/build-runner.md`](docs/build-runner.md) | self-hosted runner: requirements, setup, CI builds, maintenance, security |
+| [`docs/build-runner.md`](docs/build-runner.md) | self-hosted runner: requirements, setup, CI builds, maintenance, security, Windows hosts |
+| [`docs/build-cloud.md`](docs/build-cloud.md) | GitHub-hosted limits, hourly cloud builder, VM route: building with no local Linux |
 | [`kernel/README.md`](kernel/README.md) | kernel splitconfig and the rationale of every fragment |
 | `./scripts/<name>.sh --help` | complete reference of each tool |
 

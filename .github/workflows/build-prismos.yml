@@ -273,7 +273,7 @@ jobs:
           JOBS: ${{ inputs.jobs }}
         run: |
           cd "${GITHUB_WORKSPACE}/${PRISMOS_REPO_DIR}"
-          args=(--bundle --image-type "${IMAGE_TYPE}" --sdk-dir "${CROS_PATH}/cros_sdk")
+          args=(--bundle --image-type "${IMAGE_TYPE}" --sdk-dir "${CROS_PATH}")
           if [[ "${JOBS}" != "0" ]]; then args+=(--jobs "${JOBS}"); fi
           ./scripts/build_iso.sh "${EDITION}" "${args[@]}"
 
