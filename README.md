@@ -214,12 +214,14 @@ prismOS/
 │   ├── app_pool.schema.json      draft-07 schema with per-type validation
 │   └── {edu,home,work,slim,pro}.conf contract read by build_iso.sh
 └── scripts/
-    ├── build_iso.sh              interactive and unattended build of the four editions
-    ├── set_edu_policy.sh         Route A / Route B
+    ├── build_iso.sh              interactive and unattended build of the five editions
+    ├── set_edu_policy.sh         Route A / Route B (Chromium + branded policy paths)
     ├── sync_overlays.sh          --edition --check --list --diff --clean
     ├── verify_legacy_cpu.sh      ISA floor on ELF/PE, rootfs, board, image
     ├── generate_app_icons.sh     squircle theme from app_pool.json
     ├── provision_waydroid_image.sh   conforming Android x86 images
+    ├── migrate_from_fydeos.sh    --collect / --restore / --offline FydeOS migration
+    ├── setup_runner_host.sh      turn a Linux PC into the prismos-builder runner
     └── lib/                      prismos_common.sh, isa_arc_probe.py
 ```
 
@@ -306,6 +308,23 @@ Main options: `--sdk-dir`, `--board`, `--jobs`, `--apps`, `--bundle`,
 `--image-type dev|base|test`, `--policy-mode local|cloud|none`, `--copy-overlays`,
 `--no-sync`, `--sync-only`, `--skip-verify`, `--keep-build`, `--dry-run`, `--verbose`.
 `./scripts/build_iso.sh --help` lists them all.
+
+**Build in CI — GitHub Actions**
+
+The [`build-prismos`](.github/workflows/build-prismos.yml) workflow has two
+jobs: `validate` (free GitHub runners: syntax, JSON schema, ISA floor, the
+pre-compilation pipeline of all five editions against a stub `cros_sdk`) and
+`build` (a self-hosted runner with the `prismos-builder` label). Compiling
+ChromiumOS needs ≥ 150 GiB of disk and ≥ 8 GiB of RAM, so a standard GitHub
+runner cannot do it; prepare your build PC once with:
+
+```bash
+./scripts/setup_runner_host.sh --token <REGISTRATION_TOKEN>
+```
+
+then run **Actions → build-prismos → Run workflow** with `edition=pro`,
+`runner_label=prismos-builder` and `chromiumos_path=/opt/chromiumos`.
+Full guide: [`docs/build-runner.md`](docs/build-runner.md).
 
 </div>
 
@@ -484,6 +503,26 @@ On the target: disable Verified Boot (`dev` images are born with
 `provision_waydroid_image.sh` once. Images include `dev_install`, sudo and a developer
 shell; for a variant without development tools use `--image-type base`.
 
+**Migrating from FydeOS**
+
+FydeOS' Android subsystem requires SSE4.2 officially, so on pre-2011 CPUs it
+is exactly what prismOS replaces. To keep the user data:
+
+```bash
+# 1. on FydeOS, logged in as the user to migrate (crosh -> shell)
+./scripts/migrate_from_fydeos.sh --collect          # bundle + manifest + SHA256
+
+# 2. copy the bundle to a USB stick, install prismOS, complete the first login
+
+# 3. on prismOS
+./scripts/migrate_from_fydeos.sh --restore /media/<usb>/prismos-migration-*.tar.gz
+```
+
+Files, wallpapers, PWA metadata and bookmarks travel; credentials never do
+(they are bound to the FydeOS account key — export passwords or use Google
+sync before wiping). `--offline MOUNTPOINT` recovers whatever is outside the
+encrypted cryptohome vaults from a mounted stateful partition.
+
 </div>
 
 ---
@@ -568,6 +607,7 @@ reliable. This is a hardware limit, not a fixable configuration.
 | [`docs/waydroid-integration.md`](docs/waydroid-integration.md) | Android x86 container, ART properties, `ISA_FLOOR` marker, unit lifecycle |
 | [`docs/wine-integration.md`](docs/wine-integration.md) | Wine/Proton/Bottles on Gen5 without Vulkan, MIME types, prefixes, kernel |
 | [`docs/dock-and-launcher.md`](docs/dock-and-launcher.md) | macOS-like shelf, `shelf.json`, policies, squircle theme, global accelerators |
+| [`docs/build-runner.md`](docs/build-runner.md) | self-hosted runner: requirements, setup, CI builds, maintenance, security |
 | [`kernel/README.md`](kernel/README.md) | kernel splitconfig and the rationale of every fragment |
 | `./scripts/<name>.sh --help` | complete reference of each tool |
 
