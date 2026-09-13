@@ -124,8 +124,8 @@ fi
 step "2/7 repository prismOS (catena di fallback)"
 fetch_done=0
 # Fallback 0: eseguito da un clone gia' presente.
-if [[ "${EXP_FORCE_FETCH:-}" == "" && "${BASH_SOURCE[0]}" == */* ]]; then
-	candidate="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd)"
+if [[ "${EXP_FORCE_FETCH:-}" == "" && "${BASH_SOURCE[0]:-}" == */* ]]; then
+	candidate="$(cd "$(dirname "${BASH_SOURCE[0]:-}")/.." 2>/dev/null && pwd)"
 	if [[ -d "${candidate}/scripts" && -f "${candidate}/profiles/app_pool.json" ]]; then
 		SRC="${candidate}"
 		ok "clone esistente riutilizzato: ${SRC}"
