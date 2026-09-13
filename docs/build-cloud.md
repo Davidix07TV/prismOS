@@ -32,7 +32,35 @@ message when the host is inadequate.
 
 > [!NOTE]
 > The workflow's own preflight (disk/RAM check) exists exactly to make this
-> fail in the first minute instead of after hours of downloading.
+> fail in the first minute instead of after hours of downloading. Measured
+> evidence: run [34760595919](https://github.com/Davidix07TV/prismOS/actions/runs/34760595919)
+> executed the real build job on GitHub-hosted `ubuntu-latest` and its
+> preflight refused it with *"ChromiumOS builds need >= 150 GiB free (found 87)"*.
+
+### 1.1 "Can't we just optimize the disk usage or split the build into stages?"
+
+This suggestion comes up often (including from AI assistants). Checked against
+the measured numbers, it does not survive:
+
+* **The disk floor is the product, not our scripts.** The pipeline already
+  uses every legitimate reduction (`--depth=1`, `--no-clone-bundle`, no test
+  images). What remains: sources ~50–70 GB + `cros_sdk` chroot ~25–30 GB +
+  board sysroot and Chromium build output ~30–45 GB + final images ~10–15 GB
+  = a **~120–160 GB peak in which everything coexists simultaneously** during
+  `build_packages`. Cleaning *between* steps lowers the average, not the peak,
+  and the peak is what must fit next to the 87 GiB a hosted runner provides.
+* **Splitting across workflow runs needs persistence that does not exist.**
+  `actions/cache` is capped at 10 GB against ~100 GB of state (checkout +
+  chroot + binary-package cache). The only conceivable variant — checkpointing
+  the state through multi-tens-of-GB workflow artifacts between 4–6 manually
+  dispatched runs and resuming `build_packages` from Portage's binary package
+  cache — is fragile unsupported territory (chroot mount state, hardlinks,
+  artifact-storage fair use), would take days to engineer and would most
+  likely die mid-Chromium anyway. The 6-hour per-job cap and the 4 hosted
+  cores (Chromium alone: 6–12 h) kill the remaining variants.
+* **What splitting *is* good for**: the workflow already splits validation
+  (free, hosted, minutes) from compilation (persistent runner, hours). The
+  split that matters is between machines, not between stages.
 
 ## 2. Hourly cloud builder (no local infrastructure, a few euros)
 
