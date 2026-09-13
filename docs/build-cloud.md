@@ -68,6 +68,16 @@ the measured numbers, it does not survive:
   artifact-storage fair use), would take days to engineer and would most
   likely die mid-Chromium anyway. The 6-hour per-job cap and the 4 hosted
   cores (Chromium alone: 6–12 h) kill the remaining variants.
+* **Compression does not remove the walls — it only moves them.** Archive
+  compression (zstd) helps to *transport/store* state, which still hits the
+  10 GB cache cap. Transparent filesystem compression (a btrfs/zstd loopback
+  inside the runner) could shrink the ~120–160 GB peak to roughly ~70–90 GB —
+  borderline against the 87 GiB measured — but it collapses build I/O on 4
+  shared cores (everything gets 2–3× slower), a `cros_sdk` chroot on a nested
+  compressed loopback filesystem is unsupported territory, and most of all it
+  does nothing against the **second independent wall: the 6-hour per-job cap**
+  versus 8–15 h of cold build on 4 cores, which compression makes *longer*.
+  Both walls must fall at the same time; neither falls.
 * **What splitting *is* good for**: the workflow already splits validation
   (free, hosted, minutes) from compilation (persistent runner, hours). The
   split that matters is between machines, not between stages.

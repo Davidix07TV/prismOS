@@ -99,7 +99,10 @@ jobs:
   # ---------------------------------------------------------------------------
   validate:
     name: Validate sources and pre-compilation pipeline
-    runs-on: ubuntu-latest-xl
+    # 'ubuntu-latest-xl' does not exist: a job with an unknown label queues
+    # forever as "Waiting for a runner" (run 34761659628 was cancelled for
+    # exactly this reason). Real labels: Settings -> Actions -> Runners.
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - name: Checkout prismOS
