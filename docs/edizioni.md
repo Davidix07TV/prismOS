@@ -92,7 +92,8 @@ Due strade alternative, mai entrambe:
   Wikipedia, Khan Academy, Scratch, F-Droid; `UserAllowlist` su `*@<dominio>`; guest,
   incognito e developer tools disabilitati; ARC e VM vietati.
 
-Lo strumento di gestione è `scripts/set_edu_policy.sh` (vedere §8 del README).
+Lo strumento di gestione è `scripts/set_edu_policy.sh` (sezione
+[Policy scolastiche (EDU)](../README.md#policy-scolastiche-edu) del README).
 
 ### 3.3 Rootfs di edizione
 

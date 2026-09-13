@@ -1,109 +1,165 @@
+<div align="center">
+
+<img src="assets/prismos-logo.svg" alt="prismOS — lettera P isometrica a facce piegate" width="200" />
+
 # prismOS
 
-**Sistema operativo web-centrico derivato da ChromiumOS per hardware legacy privo di SSE4.2.**
+### Sistema operativo web-centrico derivato da ChromiumOS per hardware legacy senza SSE4.2
 
-prismOS trasforma portatili e desktop ricondizionati del periodo 2010-2012 — tipicamente
-equipaggiati con Intel Pentium P6100, Celeron P4xxx o Core i3/i5/i7 di prima generazione
-(Arrandale), cioè CPU x86-64 che si fermano a **SSE4.1** e non implementano **SSE4.2** né
-**POPCNT** — in postazioni di lavoro, aula o intrattenimento basate sul browser Chromium,
-con una interfaccia Ash/Aura in stile macOS e due sottosistemi di compatibilità
-(**Waydroid** per le applicazioni Android e **Wine/Proton** per quelle Windows).
+[![Ultima release](https://img.shields.io/github/v/release/Davidix07TV/prismOS?style=for-the-badge&labelColor=0d1117)](https://github.com/Davidix07TV/prismOS/releases)
+[![Licenza](https://img.shields.io/github/license/Davidix07TV/prismOS?style=for-the-badge&labelColor=0d1117)](https://github.com/Davidix07TV/prismOS/blob/main/LICENSE)
+[![Attività commit](https://img.shields.io/github/commit-activity/m/Davidix07TV/prismOS?style=for-the-badge&labelColor=0d1117)](https://github.com/Davidix07TV/prismOS/commits)
+[![Dimensione repo](https://img.shields.io/github/repo-size/Davidix07TV/prismOS?style=for-the-badge&labelColor=0d1117)](https://github.com/Davidix07TV/prismOS)
 
-Il progetto rimuove integralmente ARC, ARC++ e ARCVM: su queste CPU il container Android di
-Google entra in un **loop infinito di riavvio**, perché `zygote` viene compilato con
-`-msse4.2 -mpopcnt` e termina con `SIGILL` al primo avvio.
+<br/>
+
+[![Bash](https://img.shields.io/badge/Bash-5.2%2B-4EAA25?style=for-the-badge&logo=gnubash&logoColor=white&labelColor=0d1117)](https://www.gnu.org/software/bash/)
+[![Kernel ChromiumOS](https://img.shields.io/badge/Kernel%20ChromiumOS-6.1-0b6ec4?style=for-the-badge&logo=linux&logoColor=white&labelColor=0d1117)](kernel/README.md)
+[![Floor ISA](https://img.shields.io/badge/Floor%20ISA-SSE4.1%20%7C%20no%20SSE4.2%2FPOPCNT-c2410c?style=for-the-badge&labelColor=0d1117)](#floor-isa)
+[![Waydroid](https://img.shields.io/badge/Waydroid-LineageOS%2016.0%20x86-3ddc84?style=for-the-badge&logo=android&logoColor=white&labelColor=0d1117)](docs/waydroid-integration.md)
+
+<br/>
+
+[**Funzionalità**](#funzionalit) · [**Edizioni**](#edizioni) · [**Build**](#build) · [**Policy EDU**](#policy-scolastiche-edu) · [**Verifica ISA**](#verifica-isa) · [**FAQ**](#faq) · [**Documentazione**](#documentazione) · [**Supporto**](#supporta-il-progetto)
+
+</div>
+
+> [!NOTE]
+> **prismOS** trasforma portatili e desktop ricondizionati del periodo 2010-2012 — Intel
+> Pentium P6100, Celeron P4500, Core i3/i5/i7 di prima generazione (Arrandale) — in
+> postazioni di lavoro, aula o intrattenimento basate sul browser Chromium, con
+> interfaccia Ash/Aura in stile macOS e due sottosistemi di compatibilità: **Waydroid** per
+> le applicazioni Android e **Wine/Proton** per quelle Windows.
+
+> [!WARNING]
+> **Floor ISA vincolante** — ARC, ARC++ e ARCVM sono rimossi integralmente: su CPU prive di
+> SSE4.2 il container Android di Google entra in un **loop infinito di riavvio** (`zygote` è
+> compilato con `-msse4.2 -mpopcnt` e termina con `SIGILL`). Per lo stesso motivo le
+> immagini Waydroid **x86_64 ufficiali non devono mai essere usate**: prismOS installa
+> soltanto immagini LineageOS 16.0 **x86 a 32 bit** con floor SSE4.1, marcate dal file
+> `ISA_FLOOR` che `prismos-waydroid-prepare` verifica a ogni avvio.
+
+<div align="center">
+
+<h1><a id="funzionalit"></a>Funzionalità</h1>
+
+<table>
+  <tr>
+    <td width="50%" valign="top">
+
+#### Floor ISA SSE4.1, dichiarato e verificato
+- `CFLAGS`/`CXXFLAGS` `-O2 -pipe -march=nehalem -mno-sse4.2 -msse4.1 -mno-popcnt`
+- `CPU_FLAGS_X86` con negazioni esplicite di `sse4_2`, `avx`, `aes`, `popcnt`
+- Argomenti GN di Chromium (`x64_arch="generic"`), Rust `target-cpu=x86-64`, Go `GOAMD64=v1`
+- `scripts/verify_legacy_cpu.sh` scandisce i binari prodotti (byte + `objdump`)
+
+</td>
+    <td width="50%" valign="top">
+
+#### ARC rimosso a tre livelli
+- USE negativi: `-arc -arc-plus -arcplusplus -arcvm -arc-kernel-features -houdini`
+- `use.mask` e `package.use.mask` sul profilo e su `chromeos-chrome`
+- Policy `ArcEnabled=false`, `UnaffiliatedArcAllowed=false` e switch `--arc-availability=none`
+
+</td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+
+#### Waydroid (Android 9, x86)
+- LineageOS 16.0 x86 a 32 bit, vendor `MAINLINE`, gralloc `minigbm`, binderfs
+- Proprietà ART `dalvik.vm.isa.x86.variant=x86` con feature `-sse4_2,-popcnt,-avx,-avx2`
+- Marcatore `ISA_FLOOR`: senza di esso il container **non parte**
+- Budget di memoria e `dex2oat` tarati per edizione (da 128 MiB/1 thread in Slim)
+
+</td>
+    <td width="50%" valign="top">
+
+#### Wine, Proton e Bottles
+- Esecuzione di `.exe`/`.msi`/`.dll`/`.scr`/`.cpl`/`.com` dal gestore dei file (MIME + BINFMT_MISC)
+- Prefisso `~/WineBottles/Default` (`WINEARCH=win64`), `wineserver` persistente per sessione
+- Su Intel HD Gen5 nessun Vulkan: backend `wined3d` con Shader Model 3, mai DXVK
+- fsync/esync su `futex_waitv` del kernel 6.1
+
+</td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+
+#### Dock in stile macOS
+- Shelf **in basso, centrata, autohide sempre attivo** — vincolata da policy di dispositivo
+- Maschera delle icone **squircle** (superellisse n = 5.0), tema vettoriale da 33 SVG
+- `ShelfAlignment`, `ShelfAutoHideBehavior`, `PinnedLauncherApps`, `WebAppInstallForceList`
+- `prismos-dock apply|verify|show|status` per gestire e verificare l'aspetto
+
+</td>
+    <td width="50%" valign="top">
+
+#### Launcher centralizzato (Spotlight)
+- `super+space` apre il launcher di Ash in modalità ricerca, senza patch a Chromium
+- Daemon evdev con cattura esclusiva e iniezione uinput di `KEY_SEARCH`
+- 12 acceleratori dichiarativi in `/usr/share/prismos/accelerators.json`
+- `super+ctrl+s` / `super+ctrl+q`: stato e spegnimento immediato dei sottosistemi
+
+</td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+
+#### Quattro edizioni
+- **EDU**: cloud-managed (Strada A) o local-policy (Strada B) con URLBlocklist
+- **Home**: streaming, Widevine L3, cloud gaming, Proton e Bottles
+- **Work**: M365, VPN con kill-switch, vault LUKS dei Download, Crostini
+- **Slim**: sotto 2 GB di RAM, sottosistemi installati ma **spenti al boot**, avvio on-demand
+
+</td>
+    <td width="50%" valign="top">
+
+#### Kernel e verifica continua
+- Splitconfig `chromiumos-x86_64/prismos_legacy` in 7 frammenti (binderfs, BINFMT_MISC, zram/zstd, PSI)
+- Scheduler per 2 core, `INTEL_IOMMU=y` con `DEFAULT_ON=n`, ITCO_WDT
+- `verify_legacy_cpu.sh` in pipeline: le librerie con dispatch IFUNC sono classificate, non bocciate
+- `sync_overlays.sh --check`: 26 verifiche di coerenza prima di ogni build
+
+</td>
+  </tr>
+</table>
+
+</div>
 
 ---
 
-## Indice
+<div align="center">
 
-1. [Perché SSE4.2 è il problema](#1-perché-sse42-è-il-problema)
-2. [Architettura in sintesi](#2-architettura-in-sintesi)
-3. [Le quattro edizioni](#3-le-quattro-edizioni)
-4. [Struttura della repository](#4-struttura-della-repository)
-5. [Prerequisiti](#5-prerequisiti)
-6. [Costruzione di un'immagine](#6-costruzione-di-unimmagine)
-7. [Pool delle applicazioni e Dock](#7-pool-delle-applicazioni-e-dock)
-8. [Gestione delle policy scolastiche (EDU)](#8-gestione-delle-policy-scolastiche-edu)
-9. [Sottosistemi di compatibilità](#9-sottosistemi-di-compatibilità)
-10. [Kernel e splitconfig](#10-kernel-e-splitconfig)
-11. [Verifica del floor ISA](#11-verifica-del-floor-isa)
-12. [Installazione su hardware reale](#12-installazione-su-hardware-reale)
-13. [Risoluzione dei problemi](#13-risoluzione-dei-problemi)
-14. [Documentazione di approfondimento](#14-documentazione-di-approfondimento)
-15. [Licenza](#15-licenza)
+<h1><a id="floor-isa"></a>Perché SSE4.2 è il problema</h1>
 
----
-
-## 1. Perché SSE4.2 è il problema
+</div>
 
 SSE4.2 introduce sette istruzioni (`PCMPISTRI`, `PCMPISTRM`, `PCMPESTRI`, `PCMPESTRM`,
-`PCMPGTQ`, `CRC32`) e, come bit ISA **indipendente**, `POPCNT`. Una CPU che non le
-implementa esegue comunque il binario fino all'istruzione incriminata, quindi genera
-`#UD` (invalid opcode) e il kernel consegna `SIGILL` al processo. Non esiste fallback:
-l'unico rimedio è non generare quelle istruzioni.
-
-Nei fatti il problema si presenta a quattro livelli diversi, e prismOS li presidia tutti:
+`PCMPGTQ`, `CRC32`) e, come bit ISA indipendente, `POPCNT`. Una CPU che non le implementa
+esegue il binario fino all'istruzione incriminata, genera `#UD` e riceve `SIGILL`: **non
+esiste fallback**. Il problema si presenta a quattro livelli e prismOS li presidia tutti:
 
 | Livello | Rischio | Contromisura prismOS |
 |---|---|---|
-| Toolchain di sistema | `-march=native` o `-march=nehalem` sul build host abilita SSE4.2 **e** POPCNT | `CFLAGS`/`CXXFLAGS` fissi in `overlays/overlay-prismos-common/make.conf` con `-march=nehalem -mno-sse4.2 -msse4.1 -mno-popcnt` |
-| Chromium (`chromeos-chrome`) | GN seleziona `-march=x86-64-v2/v3` in base al toolchain | Argomenti GN forzati: `x64_arch="generic"`, `use_thin_lto=false`, `target_cpu="x64"` |
-| Linguaggi non C (Rust, Go) | `target-cpu=nehalem` riattiva `+sse4.2,+popcnt` | Rust: `target-cpu=x86-64` con `target-feature=+sse4.1,-sse4.2,-popcnt`; Go: `GOAMD64=v1` |
-| Runtime Android | ART/dex2oat generano codice per la variante CPU rilevata | Immagini Waydroid **x86 a 32 bit** (baseline SSE3) e `dalvik.vm.isa.x86.variant=x86` con feature esplicite `-sse4_2,-popcnt` |
+| Toolchain di sistema | `-march=native` o `nehalem` sul build host abilita SSE4.2 **e** POPCNT | `CFLAGS` fissi in `overlay-prismos-common/make.conf` |
+| Chromium | GN seleziona `-march=x86-64-v2/v3` | `x64_arch="generic"`, `use_thin_lto=false` |
+| Rust e Go | `target-cpu=nehalem` riattiva `+sse4.2,+popcnt` | `target-cpu=x86-64` con `target-feature=+sse4.1,-sse4.2,-popcnt`; `GOAMD64=v1` |
+| Runtime Android | ART compila per la variante CPU rilevata | immagini x86 a 32 bit e `dalvik.vm.isa.x86.variant=x86` con feature esplicite |
 
-> **Nota tecnica su GCC.** `-march=nehalem` è il modello ISA più vicino ad Arrandale che GCC
-> sappia esprimere, ma abilita anche SSE4.2 e POPCNT. `-mno-sse4.2` **non** disattiva POPCNT,
-> che va negato esplicitamente con `-mno-popcnt`. Omettere quest'ultimo flag è l'errore più
-> frequente e produce un sistema che si avvia ma va in `SIGILL` dentro Chrome o glibc.
+> [!IMPORTANT]
+> `-march=nehalem` è il modello ISA più vicino ad Arrandale che GCC sappia esprimere, ma
+> abilita anche SSE4.2 e POPCNT. **`-mno-sse4.2` non disattiva POPCNT**: va negato
+> esplicitamente con `-mno-popcnt`. Ometterlo produce un sistema che si avvia e va in
+> `SIGILL` dentro Chrome o glibc.
 
-## 2. Architettura in sintesi
+---
 
-```
-                    ┌────────────────────────────────────────────────┐
-                    │  Board amd64-prismos  (overlay-amd64-prismos)  │
-                    │  make.conf = common → edizione → board         │
-                    │  profiles/base/parent = chromiumos + common    │
-                    │                            + prismos-<edizione>│
-                    └───────────────┬────────────────────────────────┘
-                                    │
-      ┌─────────────────────────────┼─────────────────────────────┐
-      │                             │                             │
-┌─────▼──────────────┐   ┌──────────▼───────────┐   ┌─────────────▼─────────────┐
-│ overlay-prismos-   │   │ overlay-prismos-     │   │ kernel/…/prismos_legacy   │
-│ common             │   │ {edu,home,work,slim} │   │ splitconfig: binder,      │
-│ CFLAGS/CXXFLAGS    │   │ USE di edizione,     │   │ binderfs, BINFMT_MISC,    │
-│ USE negativi ARC   │   │ pacchetti, rootfs    │   │ zram/zstd, PSI, memcg,    │
-│ use.mask           │   │ (/etc/prismos/*.conf)│   │ legacy-cpu, wine, slim    │
-└─────┬──────────────┘   └──────────┬───────────┘   └───────────────────────────┘
-      │                             │
-      │   pacchetti prismOS (app-misc, app-emulation)
-      ▼
-┌──────────────────────────────────────────────────────────────────────────────┐
-│ prismos-runtime-config  prima avvio, env.d GPU, sysctl, target sottosistemi  │
-│ prismos-dock            shelf bassa/centrata/autohide + policy + icone       │
-│ prismos-accelerator-…   scorciatoie globali evdev→uinput (super+space, …)    │
-│ prismos-slim-launcher   avvio on-demand e teardown dei sottosistemi          │
-│ prismos-waydroid-config container LineageOS 16.0 x86, prop ART, MIME .apk    │
-│ prismos-wine-config     prefissi Wine, wined3d, MIME .exe/.msi, wrapper      │
-└──────────────────────────────────────────────────────────────────────────────┘
-```
+<div align="center">
 
-Tre decisioni progettuali governano tutto il resto:
+<h1><a id="edizioni"></a>Edizioni</h1>
 
-1. **Il floor ISA è dichiarato, non dedotto.** Ogni livello di compilazione riceve flag
-   espliciti e `scripts/verify_legacy_cpu.sh` li verifica sui binari prodotti, cercando le
-   codifiche byte di `CRC32`, `POPCNT`, `PCMPxSTRx`, AES-NI, PCLMUL, AVX, BMI e F16C e
-   confermando i candidati con `objdump`.
-2. **Le overlay di edizione contengono solo profilo e rootfs.** La logica di build vive in
-   `scripts/build_iso.sh`, che concatena i `make.conf` e materializza la board overlay.
-3. **Nessun sottosistema parte se non serve.** Le unità di Waydroid e Wine vengono
-   installate senza attivazione predefinita (`systemd_dounit`, mai
-   `systemd_enable_service`); dichiarano `[Install] WantedBy=prismos-subsystems.target` così
-   che `prismos-firstboot` possa abilitarle, disabilitarle o mascherarle secondo lo stato
-   letto da `/etc/prismos/edition.conf` (`enabled`, `on-demand`, `disabled`, `masked`).
-
-## 3. Le quattro edizioni
+</div>
 
 | | **EDU** | **Home** | **Work** | **Slim** |
 |---|---|---|---|---|
@@ -113,247 +169,152 @@ Tre decisioni progettuali governano tutto il resto:
 | Wine al boot | `masked` | `enabled` | `enabled` | **`on-demand` (spento)** |
 | Policy Chromium | Strada A o B | nessuna | dispositivo (VPN/antianonimato) | nessuna |
 | Dock (pin max / predefiniti) | 8 / 6, 48 px | 10 / 8, 56 px, blur | 8 / 8, 48 px, opaca | 6 / 6, 40 px, senza animazioni |
-| Peculiarità | profili effimeri, guest disabilitato, blocco social | Widevine L3 (tetto 720p), decodifica video via SIMD SSE4.1, cloud gaming | M365 fissato, VPN con kill-switch, vault LUKS per i Download | zram zstd, zswap, earlyoom, idle reaper a 120 s |
+| Peculiarità | profili effimeri, guest disabilitato, blocco social | Widevine L3 (tetto 720p), decodifica via SIMD SSE4.1, cloud gaming | M365 fissato, VPN con kill-switch, vault LUKS | zram zstd, zswap, earlyoom, idle reaper a 120 s |
 
-Il contratto funzionale di **Slim** merita una precisazione: Waydroid e Wine sono
-*installati* (USE attive, pacchetti presenti, MIME type registrati, voci `.desktop`
-disponibili) ma i loro demoni sono **completamente spenti all'avvio**. L'apertura di un file
-`.apk`/`.xapk` oppure `.exe`/`.msi`/`.dll`/`.scr`/`.cpl`/`.com` attiva
-`/usr/bin/prismos-slim-launcher`, che esegue `systemctl start` sul sottosistema richiesto,
-attende la readiness, lancia l'applicazione e — alla chiusura — la termina con `SIGTERM` e
-poi `SIGKILL`, ripulendo mount, cgroup e prefissi temporanei. È ammesso un solo sottosistema
-alla volta.
+Il contratto funzionale di **Slim**: Waydroid e Wine sono *installati* (USE attive, MIME
+type registrati, voci `.desktop` presenti) ma i demoni sono **completamente spenti
+all'avvio**. L'apertura di un `.apk`/`.xapk` oppure di un `.exe`/`.msi` attiva
+`/usr/bin/prismos-slim-launcher`, che avvia il sottosistema, attende la readiness, lancia
+l'applicazione e — alla chiusura — la termina con `SIGTERM` e poi `SIGKILL`, ripulendo
+mount, cgroup e prefissi temporanei. È ammesso un solo sottosistema alla volta.
 
-Le configurazioni di edizione vivono in due posti complementari:
+Confronto esteso, flag USE e rootfs di edizione: [`docs/edizioni.md`](docs/edizioni.md).
 
-* `profiles/<edizione>.conf` — parametri letti da `build_iso.sh` (stato dei sottosistemi,
-  aspetto della Dock, policy, requisiti hardware, frammenti di kernel);
-* `overlays/overlay-prismos-<edizione>/make.conf` — flag USE e pacchetti visti da Portage;
-* `overlays/overlay-prismos-<edizione>/files/` — albero rootfs copiato nell'immagine.
+---
 
-## 4. Struttura della repository
+<div align="center">
+
+<h1><a id="struttura"></a>Struttura della repository</h1>
+
+</div>
 
 ```
 prismOS/
 ├── README.md                     questo documento
+├── LICENSE                       MIT, con delimitazione dell'ambito rispetto ai terzi
+├── assets/prismos-logo.svg       marchio vettoriale
 ├── docs/
-│   ├── architecture.md           architettura dettagliata e flussi di build
+│   ├── architecture.md           stratificazione Portage, pipeline, unita' systemd, runtime
 │   ├── edizioni.md               confronto esteso delle quattro edizioni
-│   ├── waydroid-integration.md   container Android x86 a floor ISA SSE4.1
-│   ├── wine-integration.md       Wine/Proton/Bottles su GPU Gen5 senza Vulkan
-│   └── dock-and-launcher.md      shelf macOS-like, icone squircle, acceleratori
-├── kernel/
-│   ├── README.md                 come viene applicato lo splitconfig
-│   └── chromeos/config/chromiumos-x86_64/prismos_legacy/
-│       ├── base.config           elenco dei frammenti da concatenare
-│       ├── prereq.config         dipendenze di configurazione
-│       ├── fragment.config       Intel Gen5, HDA, rete, filesystem, sicurezza
-│       ├── legacy-cpu.config     scheduler a 2 core, niente AVX/AES-NI, IOMMU
-│       ├── android.config        binder, binderfs, namespace, cgroup v2, DMA-BUF
-│       ├── wine.config           BINFMT_MISC, fsync/esync, THP, zswap, gamepad
-│       └── slim.config           zram/zstd, PSI, memcg, tracer spenti
+│   ├── waydroid-integration.md   container Android x86, prop ART, ISA_FLOOR, ciclo di vita
+│   ├── wine-integration.md       Wine/Proton/Bottles su Gen5 senza Vulkan, MIME, prefissi
+│   └── dock-and-launcher.md      shelf macOS-like, shelf.json, icone squircle, acceleratori
+├── kernel/chromeos/config/chromiumos-x86_64/prismos_legacy/
+│   ├── base.config  prereq.config  fragment.config
+│   ├── legacy-cpu.config  android.config  wine.config  slim.config
 ├── overlays/
-│   ├── overlay-amd64-prismos/    board: identità, bootloader, naming immagine
-│   │   └── board/                albero rootfs di partenza + icone squircle
-│   ├── overlay-prismos-common/   CFLAGS/USE di base, eclass, pacchetti prismOS
-│   │   ├── eclass/prismos-legacy-cpu.eclass
-│   │   └── app-{misc,emulation}/prismos-*   sei pacchetti di sistema
-│   ├── overlay-prismos-edu/      chrome_policy.json, flag di enrollment
-│   ├── overlay-prismos-home/     home-tuning.conf
-│   ├── overlay-prismos-work/     work.conf, policy VPN, chromium-browser
-│   └── overlay-prismos-slim/     slim-tuning.conf, zram, earlyoom
+│   ├── overlay-amd64-prismos/    board amd64-prismos + rootfs + tema icone squircle
+│   ├── overlay-prismos-common/   CFLAGS/USE, eclass, 6 pacchetti, 10 unita' systemd
+│   └── overlay-prismos-{edu,home,work,slim}/   profilo e rootfs di edizione
 ├── profiles/
-│   ├── app_pool.json             25 applicazioni, 4 bundle di edizione
-│   ├── app_pool.schema.json      schema JSON draft-07 con validazione per tipo
-│   ├── edu.conf home.conf work.conf slim.conf
+│   ├── app_pool.json             25 applicazioni, 4 bundle, requisiti ISA e RAM
+│   ├── app_pool.schema.json      schema draft-07 con validazione per tipo
+│   └── {edu,home,work,slim}.conf contratto letto da build_iso.sh
 └── scripts/
-    ├── build_iso.sh              build interattiva (deliverable principale)
-    ├── set_edu_policy.sh         Strada A / Strada B per l'edizione EDU
-    ├── sync_overlays.sh          sincronia, verifica e pulizia degli overlay
-    ├── verify_legacy_cpu.sh      verifica del floor ISA su binari e rootfs
-    ├── generate_app_icons.sh     tema di icone squircle da app_pool.json
-    ├── provision_waydroid_image.sh  immagini Android x86 a floor ISA
-    └── lib/
-        ├── prismos_common.sh     libreria condivisa (log, JSON, cros_sdk)
-        └── isa_arc_probe.py      sonda dei token USE di ARC
+    ├── build_iso.sh              build interattiva e non delle quattro edizioni
+    ├── set_edu_policy.sh         Strada A / Strada B
+    ├── sync_overlays.sh          --edition --check --list --diff --clean
+    ├── verify_legacy_cpu.sh      floor ISA su ELF/PE, rootfs, board, immagine
+    ├── generate_app_icons.sh     tema squircle da app_pool.json
+    ├── provision_waydroid_image.sh   immagini Android x86 conformi
+    └── lib/                      prismos_common.sh, isa_arc_probe.py
 ```
 
-## 5. Prerequisiti
+---
+
+<div align="center">
+
+<h1><a id="requisiti"></a>Requisiti</h1>
 
 **Host di build**
 
-* GNU/Linux x86-64, kernel ≥ 5.10, **almeno 150 GB liberi** (una build completa di
-  ChromiumOS con `chromeos-chrome` supera i 120 GB) e 8 GB di RAM consigliati;
-* `git`, `curl`, `python3` (≥ 3.8), `tar`, `xz`, `unzip`, `sudo` con accesso a
-  `mount`/`losetup` per la verifica delle immagini;
-* il depot_tools di ChromiumOS e un checkout `chromiumos` completo
-  (`repo init -u https://chromium.googlesource.com/chromiumos/manifest.git -b <release>`),
-  con `cros_sdk` funzionante. La branch supportata è quella con kernel **6.1**
-  (`CHROMEOS_KERNEL_VERSION="6.1"` in `overlay-prismos-common/make.conf`).
+- GNU/Linux x86-64, kernel ≥ 5.10, **almeno 150 GB liberi** e 8 GB di RAM consigliati
+- `git`, `curl`, `python3` ≥ 3.8, `tar`, `xz`, `unzip`, `sudo` con accesso a `mount`/`losetup`
+- depot_tools e checkout ChromiumOS completo con `cros_sdk` funzionante (branch kernel **6.1**)
+- Repository clonata in `~/chromiumos/src/overlays/prismOS` (o linkata con `--repo-mount`)
 
-**Posizione della repository**
+**Hardware target**
 
-Clonare prismOS dentro il checkout, in modo che il chroot la veda:
+- CPU x86-64 **senza SSE4.2**: Pentium P6100/P6200, Celeron P4500, Core i3-330M, i5-430M, i7-620M
+- Intel HD Graphics di prima generazione (Ironlake, Gen5): OpenGL 2.1, **nessun Vulkan**, VA-API parziale
+- ≥ 1 GB di RAM per Slim, ≥ 2 GB per EDU, ≥ 3 GB per Home e Work
+- Firmware Legacy BIOS oppure UEFI (entrambi i percorsi GRUB sono nell'immagine)
 
-```bash
-cd ~/chromiumos/src/overlays
-git clone <url-di-prismOS> prismOS
-```
+</div>
 
-Se la repository si trova altrove, `build_iso.sh` crea automaticamente il link simbolico
-`src/overlays/prismOS`; il percorso visto dal chroot si può forzare con `--repo-mount`.
+---
 
-**Target**
+<div align="center">
 
-* CPU x86-64 senza SSE4.2 (Intel Pentium P6100/P6200, Celeron P4500, Core i3-330M,
-  i5-430M, i7-620M e simili Arrandale);
-* Intel HD Graphics di prima generazione (Ironlake, Gen5): OpenGL 2.1, **nessun Vulkan**,
-  VA-API parziale (decodifica MPEG-2/VC-1; H.264 non utilizzabile in modo affidabile);
-* ≥ 1 GB di RAM per l'edizione Slim, ≥ 2 GB per EDU, ≥ 3 GB per Home e Work;
-* firmware in modalità Legacy BIOS oppure UEFI (l'immagine include entrambi i percorsi GRUB).
+<h1><a id="build"></a>Build</h1>
 
-## 6. Costruzione di un'immagine
-
-### 6.1 Build interattiva
-
-```bash
-cd ~/chromiumos/src/overlays/prismOS
-./scripts/build_iso.sh slim --sdk-dir ~/chromiumos/cros_sdk
-```
-
-Lo script mostra il menu numerato delle applicazioni disponibili per l'edizione, con il
-tipo (`Web_App`, `Android_Pkg`, `Windows_Pkg`) e il contrassegno di quelle già previste dal
-bundle; la selezione accetta elenchi e intervalli:
-
-```
-  N.   APPLICAZIONE               TIPO          DEF.
-  -----------------------------------------------------------------------
-  1.   Google Drive               Web_App       *
-  2.   YouTube                    Web_App       *
-  3.   Spotify                    Web_App       *
-  ...
-Seleziona le applicazioni da installare [es. 1,3,5 | 2-7 | all | none]
-(default: 1,2,3,4,5,12,16):
-```
-
-Le fasi successive sono: generazione di `shelf.json` e `edition.conf`, sincronizzazione
-degli overlay nel `cros_sdk`, `setup_board --board=amd64-prismos`,
-`build_packages --board=amd64-prismos`, `build_image --board=amd64-prismos
---noenable_rootfs_verification dev`, raccolta in `output/prismOS_<edizione>_legacy.img`,
-verifica del floor ISA sui binari critici del sysroot.
-
-### 6.2 Build non interattiva
-
-```bash
-# bundle predefinito dell'edizione
+<table>
+  <tr>
+    <th align="center">Build interattiva</th>
+    <th align="center">Build non interattiva</th>
+  </tr>
+  <tr>
+    <td align="center">
+      <pre><code>cd ~/chromiumos/src/overlays/prismOS
+./scripts/build_iso.sh slim \
+    --sdk-dir ~/chromiumos/cros_sdk</code></pre>
+    </td>
+    <td align="center">
+      <pre><code># bundle predefinito dell'edizione
 ./scripts/build_iso.sh home --bundle --jobs 8
 
-# selezione esplicita
+# selezione esplicita dal pool
 ./scripts/build_iso.sh edu --apps 1,3,5-7
 
-# tutte e quattro le edizioni in sequenza
+# tutte e quattro le edizioni
 ./scripts/build_iso.sh all --bundle
 
-# sola preparazione degli overlay, senza compilare
-./scripts/build_iso.sh work --sync-only
-```
+# sola sincronizzazione degli overlay
+./scripts/build_iso.sh work --sync-only</code></pre>
+    </td>
+  </tr>
+</table>
+
+Il menu interattivo elenca le applicazioni del pool con tipo (`Web_App`, `Android_Pkg`,
+`Windows_Pkg`) e contrassegno di quelle già previste dal bundle; la selezione accetta
+elenchi e intervalli (`1,3,5-7`, `all`, `none`).
+
+Le fasi: generazione di `shelf.json` ed `edition.conf` → sincronizzazione degli overlay nel
+`cros_sdk` → `setup_board` → `build_packages` → `build_image
+--noenable_rootfs_verification dev` → raccolta in `output/prismOS_<edizione>_legacy.img` →
+verifica del floor ISA sui binari critici del sysroot.
+
+**Artefatti prodotti**
+
+| Percorso | Contenuto |
+|---|---|
+| `output/prismOS_<edizione>_legacy.img` | immagine disco avviabile |
+| `output/prismOS_<edizione>_legacy.img.info` | board, kernel, ISA, app selezionate, SHA-256 |
+| `output/prismOS_<edizione>_legacy.shelf.json` | configurazione della Dock usata |
+| `output/prismOS_<edizione>_legacy.edition.conf` | stato dei sottosistemi incorporato |
+| `output/prismOS_<edizione>_legacy.isa-report.{txt,json}` | esito della verifica del floor ISA |
+| `build/logs/build-<edizione>-<timestamp>.log` | log completo della build |
 
 Opzioni principali: `--sdk-dir`, `--board`, `--jobs`, `--apps`, `--bundle`,
 `--image-type dev|base|test`, `--policy-mode local|cloud|none`, `--copy-overlays`,
 `--no-sync`, `--sync-only`, `--skip-verify`, `--keep-build`, `--dry-run`, `--verbose`.
 `./scripts/build_iso.sh --help` le elenca tutte.
 
-### 6.3 Artefatti prodotti
+</div>
 
-| Percorso | Contenuto |
-|---|---|
-| `output/prismOS_<edizione>_legacy.img` | immagine disco avviabile |
-| `output/prismOS_<edizione>_legacy.img.info` | metadati: board, kernel, ISA, app selezionate, SHA-256 |
-| `output/prismOS_<edizione>_legacy.shelf.json` | configurazione della Dock usata nella build |
-| `output/prismOS_<edizione>_legacy.edition.conf` | stato dei sottosistemi incorporato |
-| `output/prismOS_<edizione>_legacy.isa-report.{txt,json}` | esito della verifica del floor ISA |
-| `build/<edizione>-<timestamp>/` | staging rigenerabile (`etc/skel`, `etc/prismos`) |
-| `build/logs/build-<edizione>-<timestamp>.log` | log completo della build |
+---
 
-### 6.4 Sincronizzazione degli overlay
+<div align="center">
 
-Dopo la modifica di una overlay non è necessario ricompilare per aggiornare l'albero di
-build:
+<h1><a id="policy-scolastiche-edu"></a>Policy scolastiche (EDU)</h1>
 
-```bash
-./scripts/sync_overlays.sh --edition home        # sincronizza senza compilare
-./scripts/sync_overlays.sh --check               # verifica coerenza di link, parent,
-                                                 # make.conf, splitconfig, policy, icone
-./scripts/sync_overlays.sh --list                # stato degli overlay nel SDK
-./scripts/sync_overlays.sh --diff --edition edu  # divergenze fra SDK e repository
-./scripts/sync_overlays.sh --clean --yes         # rimuove ogni riferimento prismOS
-```
+</div>
 
-## 7. Pool delle applicazioni e Dock
+#### Strada A — Cloud-Managed
 
-`profiles/app_pool.json` è la fonte unica di verità per le applicazioni: 25 voci (15
-`Web_App`, 6 `Android_Pkg` da F-Droid, 4 `Windows_Pkg`) e 4 bundle di edizione con
-`preselected`, `default_pinned`, `max_pinned` e `blocked_by_policy`. Ogni voce dichiara
-`launch_url`, `install_url`, `scope`, `icon`, `glyph`, `color`, `category`, i requisiti
-(`min_ram_mb`, `sse42_required`, `arm_translation_required`) e, per i tipi non web, i dati
-di sottosistema (`android_package`/`android_activity`, `wine_prefix`/`wine_arch`/
-`installer_args`/`post_install_binary`/`wine_dependencies`).
-
-Da quel file `build_iso.sh` genera tre artefatti:
-
-1. `/etc/skel/.config/chromiumos/shelf.json` — Dock centrata con allineamento basso,
-   autohide, maschera squircle (superellisse con esponente 5.0), raggio, dimensione icona,
-   acceleratore del launcher e l'elenco delle icone bloccate, ciascuna con il sottosistema
-   di appartenenza e l'unità systemd da attivare;
-2. `/etc/chromium/policies/managed/zz-prismos-dock.json` — `ShelfAlignment=Bottom`,
-   `ShelfAutoHideBehavior=Always`, `PinnedLauncherApps` e `WebAppInstallForceList`;
-3. `/usr/share/prismos/app_pool.json` — copia consultata a runtime dal launcher.
-
-Le icone sono vettoriali e generate da `scripts/generate_app_icons.sh`:
-
-```bash
-./scripts/generate_app_icons.sh                      # tema completo nella board overlay
-./scripts/generate_app_icons.sh --list               # anteprima dell'elenco
-./scripts/generate_app_icons.sh --shape rounded-rect --radius 0.22
-./scripts/generate_app_icons.sh --preview build/preview.svg
-./scripts/generate_app_icons.sh --validate           # coerenza con app_pool.json
-```
-
-Ogni icona è una superellisse |x/a|ⁿ + |y/a|ⁿ = 1 campionata su 128 punti (n = 5.0,
-l'aspetto delle icone di macOS Big Sur), con gradiente verticale derivato dal colore del
-marchio, lucidatura superiore e glifo centrale. Nessun filtro SVG e nessuna bitmap: il
-compositore Ash le ridimensiona senza costi misurabili su Gen5.
-
-Le scorciatoie globali sono gestite da `prismos-accelerator-daemon`
-(`/usr/libexec/prismos/`), che cattura la tastiera via evdev e inietta `KEY_SEARCH`
-attraverso uinput; la mappa delle dodici combinazioni è dichiarata in
-`/usr/share/prismos/accelerators.json`: `super+space` (launcher in stile
-Spotlight), `super+shift+space` (ricerca web), `super+l` (blocco), `super+d` (desktop),
-`super+w` (overview), `super+print` (screenshot), `super+1..4` (cambio applicazione),
-`super+ctrl+s`/`super+ctrl+q` (avvio dei sottosistemi).
-
-## 8. Gestione delle policy scolastiche (EDU)
-
-L'edizione EDU supporta due strade alternative, selezionabili in build con
-`--policy-mode` oppure a posteriori con `scripts/set_edu_policy.sh`.
-
-### Strada A — Cloud-Managed
-
-Il dispositivo si iscrive alla Google Admin Console dell'istituto. Vengono scritti in
-`/etc/default/chromium-browser` **solo** gli switch di Enterprise Enrollment effettivamente
-riconosciuti da Chromium:
-
-```
---enterprise-enable-zero-touch-enrollment
---enterprise-enrollment-initial-modulus=<base64>          # opzionale, DM server proprio
---enterprise-enrollment-initial-modulus-length=<n>
---arc-availability=none
-```
-
-Nessuna policy JSON locale viene installata (le policy di dispositivo avrebbero precedenza
-su quelle cloud). Con `--with-domain-policy` si aggiunge una policy minima — `UserAllowlist`
-sul dominio, `ArcEnabled=false`, guest e VM disabilitati — utile nel periodo che precede il
-completamento dell'iscrizione.
+Il dispositivo si iscrive alla Google Admin Console dell'istituto. In
+`/etc/default/chromium-browser` vengono scritti **solo** switch di Enterprise Enrollment
+realmente riconosciuti da Chromium:
 
 ```bash
 ./scripts/set_edu_policy.sh --strada a --domain liceo-fermi.edu \
@@ -362,194 +323,339 @@ completamento dell'iscrizione.
     --dm-modulus <base64> --dm-modulus-length 2048 --with-domain-policy
 ```
 
-### Strada B — Local-Policy
+Nessuna policy JSON locale viene installata: le policy di dispositivo avrebbero precedenza
+su quelle cloud.
 
-Nessuna infrastruttura Google: la policy di dispositivo viene scritta in
-`/etc/chromium/policies/managed/prismos_policy.json` a partire dal template
-`overlays/overlay-prismos-edu/chrome_policy.json` (81 chiavi), sostituendo il dominio
-segnaposto e componendo:
+#### Strada B — Local-Policy
 
-* **URLBlocklist** — TikTok, YouTube e Twitch con CDN, shortener e domini correlati
-  (`*.tiktokcdn.com`, `*.musical.ly`, `*.googlevideo.com`, `*.ytimg.com`, `*.ttvnw.net`,
-  `*.jtvnw.net`), più i social, il gaming, i proxy anonimi e i contenuti per adulti già
-  presenti nel template;
-* **URLAllowlist** — dominio dell'istituto e sottodomini (`*://*.ic-manzi.edu/*`), servizi
-  ministeriali, Google Workspace for Education, Geogebra, Canva, Wikipedia, Khan Academy,
-  Scratch, F-Droid;
-* **UserAllowlist** — `*@<dominio>`, disattivabile con `--all-users`.
-
-Poiché in Chromium la URLAllowlist ha precedenza sulla URLBlocklist, lo script rimuove
-automaticamente ogni voce consentita che ricada in un dominio bloccato e lo registra nel log.
+Nessuna infrastruttura Google: la policy viene scritta in
+`/etc/chromium/policies/managed/prismos_policy.json` dal template
+`overlays/overlay-prismos-edu/chrome_policy.json` (81 chiavi), con **URLBlocklist** su
+TikTok, YouTube e Twitch (CDN, shortener e domini correlati), **URLAllowlist** su dominio
+scolastico, servizi ministeriali, Workspace for Education, Geogebra, Canva, Wikipedia, Khan
+Academy, Scratch e F-Droid, e `UserAllowlist` su `*@<dominio>`.
 
 ```bash
 ./scripts/set_edu_policy.sh --strada b --domain ic-manzi.edu \
     --allowlist "*://web.spaggiari.eu/* *://*.indire.it/*"
 ./scripts/set_edu_policy.sh --strada b --domain ic-manzi.edu \
     --blocklist "*://*.roblox.com/*" --all-users
-./scripts/set_edu_policy.sh --show      # riepilogo della configurazione installata
-./scripts/set_edu_policy.sh --validate  # sintassi, conflitti, chiavi ARC
-./scripts/set_edu_policy.sh --remove    # ritorno alla Strada A pura
+./scripts/set_edu_policy.sh --show        # riepilogo installato
+./scripts/set_edu_policy.sh --validate    # sintassi, conflitti, chiavi ARC
+./scripts/set_edu_policy.sh --remove      # ritorno alla Strada A pura
 ```
 
-Tutti i comandi accettano `--rootfs <albero>` per agire su una overlay, su una rootfs
-montata o su `/build/<board>`; senza quell'opzione operano dal vivo sul dispositivo, con
-`sudo`, e supportano `--dry-run`, `--no-backup` e `--restart-ui`.
+Poiché in Chromium la URLAllowlist ha precedenza sulla URLBlocklist, lo script rimuove
+automaticamente ogni voce consentita che ricada in un dominio bloccato e lo registra nel log.
 
-## 9. Sottosistemi di compatibilità
+---
 
-### 9.1 Waydroid (Android)
+<div align="center">
 
-LineageOS 16.0 (Android 9), **variante x86 a 32 bit**, vendor `MAINLINE` (kernel ospite con
-binderfs, niente secondo kernel Halium), gralloc `minigbm`, EGL SwiftShader. Le immagini
-x86_64 pubblicate a monte sono rifiutate: sono compilate con SSE4.2 e POPCNT.
+<h1><a id="sottosistemi"></a>Sottosistemi di compatibilità</h1>
 
-```bash
-sudo ./scripts/provision_waydroid_image.sh --edition slim
-./scripts/provision_waydroid_image.sh --edition home --query-latest --source upstream
-sudo ./scripts/provision_waydroid_image.sh --edition work --build \
-     --source-dir ~/lineageos-16.0 --jobs 8
-sudo ./scripts/provision_waydroid_image.sh --edition edu \
-     --archive ~/lineage-16.0-waydroid_x86.zip --deep-verify
-```
+<table>
+  <tr>
+    <th align="center">Waydroid — Android 9 x86</th>
+    <th align="center">Wine — applicazioni Windows</th>
+  </tr>
+  <tr>
+    <td>
+      <pre><code>sudo ./scripts/provision_waydroid_image.sh \
+     --edition slim
 
-Lo script scarica (con ripresa e verifica SHA-256), estrae `system.img`/`vendor.img` in
-`/var/lib/waydroid/images`, installa `waydroid_base.prop` e `waydroid_mainline.prop` con le
-proprietà ART del floor ISA e il budget di memoria dell'edizione, verifica che nessuna ABI a
-64 bit sia esposta e scrive il marcatore `ISA_FLOOR`: se il marcatore manca,
-oppure dichiara un ISA superiore a SSE4.1, `prismos-waydroid-prepare` **rifiuta** di avviare
-il container (l'eccezione si dichiara con `PRISMOS_ALLOW_UNVERIFIED_IMAGES=1`). Con `--deep-verify` monta
-`system.img` in sola lettura e scandisce le librerie native.
+sudo ./scripts/provision_waydroid_image.sh \
+     --edition edu \
+     --archive ~/lineage-16.0-x86.zip \
+     --deep-verify
 
-La traduzione ARM (houdini, libndk_translation) è disattivata: richiede SSE4.2. Sono
-esposte solo le ABI `x86,armeabi-v7a,armeabi` e le applicazioni ARM-only non sono
-installabili; `profiles/app_pool.json` seleziona pertanto pacchetti F-Droid disponibili per
-x86 (`arm_translation_required: false`).
+sudo ./scripts/provision_waydroid_image.sh \
+     --edition work --build \
+     --source-dir ~/lineageos-16.0</code></pre>
+    </td>
+    <td>
+      <pre><code>prismos-wine-run \
+    ~/Downloads/npp.Installer.exe \
+    --prefix Default -- /S
 
-### 9.2 Wine e Proton (Windows)
+prismos-wine-run --list-prefixes
+wineserver -k
 
-Wine con USE `run-exes`, prefisso predefinito `~/WineBottles/Default`
-(`/home/chronos/user/WineBottles/Default`, `WINEARCH=win64`), `wineserver` persistente per
-sessione, esecuzione diretta di `.exe`/`.msi` dal gestore dei file grazie ai MIME type e a
-`BINFMT_MISC`. `prismos-wine-prepare` sceglie il backend verificando la presenza reale di un
-ICD Vulkan: su Gen5 non ne esiste alcuno, quindi viene sempre selezionato `wined3d`.
+# in Slim e' tutto mediato da:
+prismos-slim-launcher start wine
+prismos-slim-launcher stop-all
+prismos-slim-launcher doctor</code></pre>
+    </td>
+  </tr>
+</table>
 
-Su Intel HD Gen5 **DXVK e VKD3D-Proton sono inutilizzabili** (manca Vulkan): il backend è
-`wined3d` con GLSL e Shader Model 3, driver Mesa `crocus`, 64 MB di VRAM dichiarati. Proton
-e Bottles restano disponibili nelle edizioni con RAM sufficiente (Home, Work), mentre EDU
-maschera Wine e Slim esclude Bottles.
+Waydroid scarica (con ripresa e SHA-256), estrae `system.img`/`vendor.img` in
+`/var/lib/waydroid/images`, installa le proprietà ART del floor ISA, verifica che nessuna
+ABI a 64 bit sia esposta e scrive il marcatore `ISA_FLOOR`; con `--deep-verify` monta
+l'immagine in sola lettura e la scandisce con `verify_legacy_cpu.sh --rootfs --full`. La
+traduzione ARM è disattivata (richiede SSE4.2): il pool seleziona perciò pacchetti F-Droid
+con ABI x86 nativa.
 
-Il flusso on-demand è `prismos-wine-prepare` → `prismos-wine-run` → `wineserver -k`,
-orchestrato dall'unità template `prismos-wine-session@<uid>.service` con `StopWhenUnneeded`
-e `MemoryMax=512M`.
+Wine rileva a runtime la presenza di un ICD Vulkan: su Gen5 non ne esiste alcuno, quindi il
+backend è sempre `wined3d` (OpenGL 2.1 via `crocus`, Shader Model 3, 64 MiB di VRAM
+dichiarati, multisampling disattivato). Proton e Bottles restano disponibili nelle edizioni
+con RAM sufficiente; EDU maschera Wine, Slim esclude Bottles.
 
-### 9.3 Rimozione di ARC
+Approfondimenti: [`docs/waydroid-integration.md`](docs/waydroid-integration.md) e
+[`docs/wine-integration.md`](docs/wine-integration.md).
 
-Tre livelli indipendenti: USE negativi (`-arc -arc-plus`), `profiles/base/use.mask` e
-`package.use.mask`, policy di dispositivo (`ArcEnabled=false`, `UnaffiliatedArcAllowed=false`,
-`UnaffiliatedDeviceArcAllowed=false`, `VirtualMachinesAllowed=false`,
-`DeviceUnaffiliatedCrostiniAllowed=false`, `CrostiniAllowed=false`) più lo switch
-`--arc-availability=none`. `scripts/verify_legacy_cpu.sh --config` verifica che nessuna
-`make.defaults` riattivi un token ARC.
+</div>
 
-## 10. Kernel e splitconfig
+---
 
-Lo splitconfig `chromiumos-x86_64/prismos_legacy` vive in
-`kernel/chromeos/config/chromiumos-x86_64/prismos_legacy/` e viene copiato in
-`src/third_party/kernel/v6.1/chromeos/config/chromiumos-x86_64/` da `build_iso.sh`
-(o da `sync_overlays.sh`). È selezionato da `CHROMEOS_KERNEL_SPLITCONFIG` nella board
-`make.conf`.
+<div align="center">
+
+<h1><a id="kernel"></a>Kernel</h1>
+
+</div>
+
+Lo splitconfig `chromiumos-x86_64/prismos_legacy` viene copiato da `build_iso.sh` in
+`src/third_party/kernel/v6.1/chromeos/config/chromiumos-x86_64/` ed è selezionato da
+`CHROMEOS_KERNEL_SPLITCONFIG` nella board `make.conf`.
 
 | Frammento | Contenuto essenziale |
 |---|---|
-| `base.config` | elenco dei frammenti da concatenare |
-| `prereq.config` | dipendenze di configurazione (cgroup, namespace, netfilter) |
-| `fragment.config` | Intel Gen5 (DRM_I915, crocus/i965), HDA, rete, filesystem, LSM SELinux |
+| `base.config` | elenco ordinato dei frammenti da concatenare |
+| `prereq.config` | dipendenze di configurazione (cgroup, namespace, netfilter, crypto) |
+| `fragment.config` | DRM_I915 e Gen5 (crocus/i965), HDA, rete, filesystem, SELinux |
 | `legacy-cpu.config` | scheduler per 2 core, niente AVX/AES-NI, `INTEL_IOMMU=y` con `DEFAULT_ON=n`, ITCO_WDT |
 | `android.config` | `ANDROID_BINDER_IPC`, binderfs, namespace, cgroup v2, DMA-BUF |
 | `wine.config` | `BINFMT_MISC`, fsync/esync, THP `madvise`, zswap, gamepad |
-| `slim.config` | zram/zstd, PSI, memcg, tracer spenti (con `BPF_SYSCALL=y` per la sandbox di Chrome) |
+| `slim.config` | zram/zstd, PSI, memcg, tracer spenti ma `BPF_SYSCALL=y` (sandbox di Chrome) |
 
-Dettagli e motivazioni delle singole voci: [`kernel/README.md`](kernel/README.md).
+Dettagli e motivazioni: [`kernel/README.md`](kernel/README.md).
 
-## 11. Verifica del floor ISA
+---
+
+<div align="center">
+
+<h1><a id="verifica-isa"></a>Verifica ISA</h1>
 
 ```bash
-./scripts/verify_legacy_cpu.sh --host            # capacità ISA della macchina corrente
-./scripts/verify_legacy_cpu.sh --config          # coerenza della repository
-./scripts/verify_legacy_cpu.sh --pe ~/setup.exe  # singolo binario (ELF o PE)
+./scripts/verify_legacy_cpu.sh --host              # capacita' ISA della macchina corrente
+./scripts/verify_legacy_cpu.sh --config            # coerenza della repository
+./scripts/verify_legacy_cpu.sh --pe ~/setup.exe    # singolo binario (ELF o PE)
 ./scripts/verify_legacy_cpu.sh --board amd64-prismos --full
 ./scripts/verify_legacy_cpu.sh --image output/prismOS_slim_legacy.img \
     --report output/isa.txt --json output/isa.json
 ```
 
-Il metodo è in due fasi: ricerca delle codifiche byte (veloce, nessun disassemblatore) e
-conferma con `objdump` sui soli candidati, per mnemonico. Le librerie con dispatch IFUNC —
-glibc, OpenSSL, zlib, LLVM/Mesa e i driver DRI — contengono legittimamente percorsi SSE4.2
-selezionati a runtime e sono classificate `dispatched`: non costituiscono fallimento. Sono
-invece fatali le evidenze su `chrome`, Wine, Waydroid e i pacchetti prismOS, compilati con
-`-march` fisso. Codici di uscita: `0` conforme, `1` non conforme, `2` errore d'uso.
+Il metodo è in due fasi: ricerca delle codifiche byte (veloce, senza disassemblatore) e
+conferma con `objdump` sui soli candidati. Le librerie con dispatch IFUNC — glibc, OpenSSL,
+zlib, LLVM/Mesa, driver DRI — contengono legittimamente percorsi SSE4.2 selezionati a
+runtime e sono classificate `dispatched`: **non** costituiscono fallimento. Sono fatali le
+evidenze su `chrome`, Wine, Waydroid e i pacchetti prismOS, compilati con `-march` fisso.
 
-## 12. Installazione su hardware reale
+Codici di uscita: `0` conforme · `1` non conforme · `2` errore d'uso.
+
+</div>
+
+---
+
+<div align="center">
+
+<h1><a id="installazione"></a>Installazione su hardware reale</h1>
 
 ```bash
 # dentro il chroot, con la chiavetta USB collegata
 cros flash usb:// ~/chromiumos/src/overlays/prismOS/output/prismOS_slim_legacy.img
+
+# oppure, da un sistema Linux avviato
+sudo dd if=prismOS_slim_legacy.img of=/dev/sdX bs=8M status=progress conv=fsync
 ```
 
-In alternativa, da un sistema Linux avviato, `dd if=prismOS_<edizione>_legacy.img
-of=/dev/sdX bs=8M status=progress conv=fsync`. Sul target è necessario:
+Sul target: disattivare il Verified Boot (le immagini `dev` nascono con
+`--noenable_rootfs_verification`; su firmware ChromeOS serve
+`make_dev_ssd.sh --remove_rootfs_verification`), completare la OOBE e, per Waydroid,
+eseguire una tantum `provision_waydroid_image.sh`. Le immagini includono `dev_install`,
+sudo e shell di sviluppo; per una variante senza strumenti di sviluppo usare
+`--image-type base`.
 
-1. disattivare il **Verified Boot** (le immagini `dev` nascono con
-   `--noenable_rootfs_verification`; su hardware con firmware ChromeOS serve impostare
-   il flag GBB con `make_dev_ssd.sh --remove_rootfs_verification`);
-2. avviare la OOBE e creare l'account locale (EDU Strada A: il dispositivo si iscrive da
-   solo se il seriale è censito nella Admin Console);
-3. per Waydroid, eseguire `provision_waydroid_image.sh` una tantum (richiede rete).
+</div>
 
-Le immagini sono `dev`: includono `dev_install`, sudo e shell di sviluppo. Per una
-variante priva di strumenti di sviluppo usare `--image-type base`, tenendo presente che la
-scrittura di `/etc` a runtime (policy, preferenze di Ash, vault dei Download) richiede
-rootfs verification disattivata.
+---
 
-## 13. Risoluzione dei problemi
+<div align="center">
+
+<h1><a id="troubleshooting"></a>Risoluzione dei problemi</h1>
 
 | Sintomo | Causa probabile | Rimedio |
 |---|---|---|
 | `SIGILL` all'avvio di Chrome | POPCNT abilitato da `-march=nehalem` | aggiungere `-mno-popcnt` in `overlay-prismos-common/make.conf` e ricompilare `chromeos-chrome` |
-| Il container Waydroid si riavvia in loop | immagini x86_64 o `dalvik.vm.isa.x86.variant=nehalem` | `provision_waydroid_image.sh --force` con sorgente x86 a 32 bit; controllare `ISA_FLOOR` |
-| `binder: failed to open` | binderfs non abilitato | verificare `android.config` e `mount -t binder none /dev/binderfs` |
+| Container Waydroid in riavvio continuo | immagini x86_64 o `isa.x86.variant=nehalem` | `provision_waydroid_image.sh --force` con sorgente x86; controllare `ISA_FLOOR` |
+| `binder: failed to open` | binderfs non abilitato | verificare `android.config`; `mount -t binder none /dev/binderfs` |
 | Schermo nero o rendering software | driver Mesa errato (`iris`/`zink`) | `MESA_LOADER_DRIVER_OVERRIDE=crocus`, `LIBVA_DRIVER_NAME=i965`, `LIBGL_DRI3_DISABLE=1` |
-| Video DRM a 480p o 720p | Widevine L3 su piattaforma non certificata | comportamento atteso: il livello L1 non è disponibile e i servizi limitano la risoluzione |
-| La Dock non è centrata o non si nasconde | policy della Dock assente | `systemctl status prismos-dock-apply` e controllare `zz-prismos-dock.json` |
-| `super+space` non apre il launcher | daemon accelerator senza accesso a evdev | `systemctl status prismos-accelerator-daemon`, gruppo `input`, `/dev/uinput` |
-| Slim: `.exe` non si apre | sottosistema Wine non installato o mascherato | `prismos-slim-launcher doctor`; verificare `WINE_BOOT_STATE` in `/etc/prismos/edition.conf` |
+| Video DRM a 480p o 720p | Widevine L3 su piattaforma non certificata | comportamento atteso: il livello L1 non è disponibile |
+| Dock non centrata o visibile | policy della Dock assente | `prismos-dock status && prismos-dock verify` |
+| `super+space` non apre il launcher | daemon senza accesso a evdev | `systemctl status prismos-accelerator-daemon`, gruppo `input`, `/dev/uinput` |
+| Slim: `.exe` non si apre | sottosistema non installato o mascherato | `prismos-slim-launcher doctor`; verificare `WINE_BOOT_STATE` in `/etc/prismos/edition.conf` |
 | `setup_board` fallisce | overlay non sincronizzata o `parent` errato | `sync_overlays.sh --check` |
-| Build lentissima o OOM sul build host | parallelismo eccessivo con 2 GB | `--jobs 2`; l'edizione Slim attiva `single-thread-link` |
+| Build lentissima o OOM sul build host | parallelismo eccessivo | `--jobs 2`; l'edizione Slim attiva `single-thread-link` |
 
-## 14. Documentazione di approfondimento
+</div>
 
-* [`docs/architecture.md`](docs/architecture.md) — flussi di build, concatenazione dei
-  profili, unità systemd, percorsi a runtime, estensione del progetto;
-* [`docs/edizioni.md`](docs/edizioni.md) — confronto esteso e matrici di configurazione;
-* [`docs/waydroid-integration.md`](docs/waydroid-integration.md) — container Android x86,
-  proprietà ART, marcatore `ISA_FLOOR`, ciclo di vita delle unità;
-* [`docs/wine-integration.md`](docs/wine-integration.md) — Wine, Proton e Bottles su Intel
-  HD Gen5 senza Vulkan, MIME type, prefissi;
-* [`docs/dock-and-launcher.md`](docs/dock-and-launcher.md) — shelf macOS-like, policy,
-  `shelf.json`, tema di icone squircle, acceleratori globali;
-* [`kernel/README.md`](kernel/README.md) — splitconfig del kernel;
-* `./scripts/<nome>.sh --help` — riferimento completo di ogni strumento.
+---
 
-## 15. Licenza
+<div align="center">
 
-Il codice originale di prismOS — script, overlay, configurazioni, unità systemd, profili e
-tema di icone — è rilasciato con licenza **MIT**: vedere [`LICENSE`](LICENSE) e
-`overlays/overlay-amd64-prismos/board/usr/share/icons/prismOS-Squircle/LICENSE`. I sei
-ebuild dichiarano `LICENSE="MIT"` per coerenza.
+<h1><a id="faq"></a>FAQ</h1>
 
-prismOS deriva da ChromiumOS e incorpora componenti di terze parti — Chromium, Gentoo,
-Waydroid, LineageOS, Wine, Proton, Mesa, LXC — ciascuno soggetto alla propria licenza. Le
-icone generate sono segnaposto vettoriali originali (glifo su fondo squircle) e **non**
-riproducono i loghi ufficiali delle applicazioni; i marchi citati appartengono ai rispettivi
-titolari. Widevine è un modulo DRM di Google soggetto a termini di licenza specifici e viene
-distribuito unicamente attraverso i canali previsti da ChromiumOS.
+### Perché non basta disattivare ARC dalle impostazioni?
+Perché il codice è già compilato con SSE4.2: `zygote` muore con `SIGILL` prima che qualsiasi
+policy venga letta. ARC va rimosso dai pacchetti, dal profilo e dalle policy, come fa
+prismOS a tre livelli indipendenti.
+
+### Posso installare applicazioni Android ARM?
+No. La traduzione ARM (houdini, libndk_translation) richiede SSE4.2/POPCNT. Il pool
+seleziona pacchetti F-Droid con ABI x86 nativa o pure-Java; le applicazioni ARM-only non
+sono installabili e `app_pool.json` lo dichiara con `arm_translation_required: false`.
+
+### I giochi Windows funzionano?
+Quelli leggeri sì, tramite `wined3d` su OpenGL 2.1 con Shader Model 3: titoli 2D,
+isometrici e i primi 3D degli anni 2000. DXVK e VKD3D-Proton richiedono Vulkan, assente su
+Intel HD Gen5. Per i titoli moderni il percorso consigliato è il cloud gaming (GeForce NOW,
+Xbox Cloud) via browser.
+
+### Quale edizione scelgo per un netbook con 1 GB di RAM?
+**Slim**: Chromium e Ash hanno priorità assoluta, Waydroid e Wine esistono ma non consumano
+memoria finché non apri un file compatibile, e zram zstd + earlyoom proteggono la sessione
+dall'OOM killer.
+
+### La scuola non ha una Google Admin Console: posso usare EDU?
+Sì, con la **Strada B**: la policy di dispositivo viene scritta localmente in
+`/etc/chromium/policies/managed/prismos_policy.json`, con blocco di TikTok/YouTube/Twitch e
+allowlist del dominio scolastico, senza alcuna infrastruttura Google.
+
+### Lo streaming video in 4K è possibile?
+No: su piattaforma non certificata Widevine opera a livello L3 (tetto 720p) e la decodifica
+avviene in software con SIMD SSE4.1, perché su Ironlake il percorso VA-API H.264 non è
+affidabile. È un limite dell'hardware, non una configurazione correggibile.
+
+</div>
+
+---
+
+<div align="center">
+
+<h1><a id="documentazione"></a>Documentazione</h1>
+
+| Documento | Contenuto |
+|---|---|
+| [`docs/architecture.md`](docs/architecture.md) | stratificazione Portage, pipeline di build, unità systemd, layout a runtime, estensione del progetto |
+| [`docs/edizioni.md`](docs/edizioni.md) | confronto esteso delle quattro edizioni: USE, pacchetti, rootfs, Dock, memoria |
+| [`docs/waydroid-integration.md`](docs/waydroid-integration.md) | container Android x86, proprietà ART, marcatore `ISA_FLOOR`, ciclo di vita delle unità |
+| [`docs/wine-integration.md`](docs/wine-integration.md) | Wine/Proton/Bottles su Gen5 senza Vulkan, MIME type, prefissi, kernel |
+| [`docs/dock-and-launcher.md`](docs/dock-and-launcher.md) | shelf macOS-like, `shelf.json`, policy, tema squircle, acceleratori globali |
+| [`kernel/README.md`](kernel/README.md) | splitconfig del kernel e motivazione di ogni frammento |
+| `./scripts/<nome>.sh --help` | riferimento completo di ogni strumento |
+
+</div>
+
+---
+
+<div align="center">
+
+<h1><a id="supporta-il-progetto"></a>Supporta il progetto</h1>
+
+<h3>prismOS è software libero. Se ti è utile, considera di contribuire!</h3>
+
+#### Metti una stella alla repository ⭐
+Se prismOS dà una seconda vita a un macchina che avevi accantonato, una stella su GitHub aiuta il progetto a farsi trovare.
+
+#### Segnala problemi e proponi miglioramenti 🐛
+Hardware non coperto, build fallita, policy da aggiungere? [Apri una issue](https://github.com/Davidix07TV/prismOS/issues).
+
+#### Contribuisci con codice e configurazioni 💻
+Le pull request sono benvenute: script bash 5 completi (niente segnaposto), flag ISA
+espliciti a ogni livello di compilazione e documentazione in italiano tecnico sono i tre
+criteri con cui vengono valutate.
+
+</div>
+
+---
+
+<div align="center">
+
+<h1>Crediti e attribuzioni</h1>
+
+<h3>prismOS esiste grazie al lavoro dei progetti seguenti.</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th align="center">Progetto</th>
+      <th align="center">Ruolo in prismOS</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td align="center"><a href="https://www.chromium.org/chromium-os"><strong>ChromiumOS</strong></a></td>
+      <td>sistema di base: kernel, Ash/Aura, toolchain di build, politiche di dispositivo</td>
+    </tr>
+    <tr>
+      <td align="center"><a href="https://www.gentoo.org"><strong>Gentoo / Portage</strong></a></td>
+      <td>profili, overlay, eclass e risoluzione delle dipendenze</td>
+    </tr>
+    <tr>
+      <td align="center"><a href="https://waydro.id"><strong>Waydroid</strong></a></td>
+      <td>container Android su kernel mainline con binderfs</td>
+    </tr>
+    <tr>
+      <td align="center"><a href="https://lineageos.org"><strong>LineageOS</strong></a></td>
+      <td>base delle immagini Android 9 x86 ricostruite a floor SSE4.1</td>
+    </tr>
+    <tr>
+      <td align="center"><a href="https://www.winehq.org"><strong>Wine</strong></a> e <a href="https://github.com/ValveSoftware/Proton"><strong>Proton</strong></a></td>
+      <td>esecuzione delle applicazioni Windows e dei prefissi gestiti da Bottles</td>
+    </tr>
+    <tr>
+      <td align="center"><a href="https://mesa3d.org"><strong>Mesa</strong></a></td>
+      <td>driver `crocus` e `i965` per Intel HD Graphics di prima generazione</td>
+    </tr>
+    <tr>
+      <td align="center"><a href="https://linuxcontainers.org"><strong>LXC</strong></a></td>
+      <td>isolamento del container Android con namespace parziali</td>
+    </tr>
+    <tr>
+      <td align="center"><a href="https://f-droid.org"><strong>F-Droid</strong></a></td>
+      <td>canale delle applicazioni Android con ABI x86 nativa selezionate nel pool</td>
+    </tr>
+  </tbody>
+</table>
+
+Le icone generate da `scripts/generate_app_icons.sh` sono segnaposto vettoriali originali
+(glifo testuale su fondo squircle) e **non** riproducono i loghi ufficiali delle
+applicazioni citate. Tutti i marchi appartengono ai rispettivi titolari.
+
+</div>
+
+---
+
+<div align="center">
+
+## Licenza
+
+Il codice e le configurazioni originali di prismOS — script, overlay, profili, unità
+systemd, splitconfig del kernel, tema di icone e documentazione — sono rilasciati con
+licenza [MIT](LICENSE), che delimita esplicitamente il proprio ambito rispetto ai
+componenti di terze parti incorporati da un'immagine (ChromiumOS, Gentoo, kernel Linux,
+Waydroid, LineageOS, Wine, Mesa, LXC), ciascuno soggetto alla propria licenza. Widevine è un
+modulo DRM di Google distribuito unicamente attraverso i canali previsti da ChromiumOS.
+
+### Disclaimer
+Questo progetto non è affiliato a Google, ChromiumOS, Intel, Microsoft o ai titolari dei
+marchi citati. L'uso su hardware specifico è a rischio dell'utilizzatore: verificare sempre
+il floor ISA con `verify_legacy_cpu.sh` prima della messa in produzione.
+
+---
+
+**Repository**: https://github.com/Davidix07TV/prismOS
+
+**Ultimo aggiornamento**: settembre 2026
+
+</div>
