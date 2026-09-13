@@ -139,7 +139,7 @@ works unchanged), or route 2.1 directly inside the VM.
 
 | Route | Cost | Setup effort | Constraints |
 |---|---|---|---|
-| GitHub-hosted only | free (`validate`) | none | **full build impossible**: 6 h/job, 14 GB disk, 10 GB cache; larger runners need a Team plan and are billed anyway |
+| GitHub-hosted only | free (`validate`) | none | **full build impossible**: 6 h/job, 87 GiB measured disk (run 34760595919), 10 GB cache; larger runners need a Team plan and are billed anyway |
 | **Cloud free trial** (§5) | **€0** (card required for identity check) | medium (one SSH session) | 30–90 day window, one account per person |
 | Hourly cloud server | ≈ €1–5 per attempt | medium (one SSH session) | provider account + payment method |
 | VM on Windows | 0 | easy | PC with ≥ 16 GB RAM, ≥ 160 GB free; builds are slower than bare metal |
