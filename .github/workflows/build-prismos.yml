@@ -20,13 +20,21 @@
 #                The job fails fast with a clear message when the host does
 #                not meet the requirements, instead of dying mid-build.
 #
-#  Trigger: manual (workflow_dispatch) only. A ChromiumOS build is too
-#  expensive for push-triggered runs.
+#  Triggers:
+#    * push (main and arena/** branches) - runs `validate` only: free CI on
+#      every change, minutes on GitHub-hosted runners.
+#    * workflow_dispatch - runs `validate` + `build`: the real compilation,
+#      manual only because it is too expensive for push-triggered runs and
+#      must target a runner with >= 150 GB of disk (self-hosted or large).
 # =============================================================================
 
 name: build-prismos
 
 on:
+  push:
+    branches:
+      - main
+      - "arena/**"
   workflow_dispatch:
     inputs:
       edition:
@@ -196,6 +204,9 @@ jobs:
 
   # ---------------------------------------------------------------------------
   build:
+    # The real compilation runs ONLY on manual dispatch: a push-triggered run
+    # would queue forever waiting for a self-hosted runner that may not exist.
+    if: github.event_name == 'workflow_dispatch'
     name: Build prismOS image (${{ inputs.edition }})
     needs: validate
     runs-on: ${{ inputs.runner_label }}
