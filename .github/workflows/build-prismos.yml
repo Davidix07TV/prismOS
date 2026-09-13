@@ -99,7 +99,7 @@ jobs:
   # ---------------------------------------------------------------------------
   validate:
     name: Validate sources and pre-compilation pipeline
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest-xl
     timeout-minutes: 20
     steps:
       - name: Checkout prismOS
