@@ -25,6 +25,16 @@ The full `build` job cannot, for hard platform limits:
 | Persistence between runs | none; `actions/cache` is capped at **10 GB per repo** | a ~100 GB checkout must persist, otherwise every run restarts from zero and hits the 6-hour wall again |
 | Larger runners (more disk/CPU) | billed **per minute even on public repos** ($0.012/min 4 vCPU … $0.252/min 96 vCPU, Linux x64) and require a **GitHub Team/Enterprise Cloud plan** — personal Free/Pro accounts cannot create them | — |
 
+> [!WARNING]
+> **"Just use `runs-on: ubuntu-latest-xl`" is a hallucinated label** — it does
+> not exist (real larger-runner labels look like `ubuntu-latest-8-cores`, or
+> the custom names you pick when creating a runner group). A job that
+> references a nonexistent label does not fail with an error: it sits in the
+> queue forever as *"Waiting for a runner"*. AI assistants keep recommending
+> this fix because it reads plausible; check labels under
+> Settings → Actions → Runners before believing any suggestion — including
+> ours.
+
 So even paying for larger runners, a cold from-source build does not fit into a
 single 6-hour job and nothing persists to split it across runs. This is why the
 workflow routes `build` to a self-hosted runner and fails fast with a clear
