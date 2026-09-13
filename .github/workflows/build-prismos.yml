@@ -101,7 +101,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Checkout prismOS
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Install tools
         run: |
@@ -207,7 +207,7 @@ jobs:
     # The real compilation runs ONLY on manual dispatch: a push-triggered run
     # would queue forever waiting for a self-hosted runner that may not exist.
     if: github.event_name == 'workflow_dispatch'
-    name: Build prismOS image (${{ inputs.edition }})
+    name: Build prismOS image (${{ inputs.edition || 'manual dispatch only' }})
     needs: validate
     # The || fallback keeps the label valid on push-triggered runs (where
     # inputs are null); the job-level if: skips them anyway. Expressions are
@@ -217,7 +217,7 @@ jobs:
     timeout-minutes: 1440
     steps:
       - name: Checkout prismOS
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           path: ${{ env.PRISMOS_REPO_DIR }}
 
