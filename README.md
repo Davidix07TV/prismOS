@@ -327,7 +327,8 @@ then run **Actions → build-prismos → Run workflow** with `edition=pro`,
 Full guide: [`docs/build-runner.md`](docs/build-runner.md).
 
 No Linux machine at hand? GitHub-hosted runners **cannot** run the full build
-(6-hour cap per job, 14 GB disk, 10 GB cache; larger runners require a Team
+(6-hour cap per job, 87 GiB of free disk measured against a ≥150 GiB floor,
+10 GB cache; larger runners require a Team
 plan and are billed even on public repos): [`docs/build-cloud.md`](docs/build-cloud.md)
 walks through the working routes — an hourly cloud builder (a few euros,
 driven entirely from Windows over SSH), a VirtualBox VM (which is *not* a dual

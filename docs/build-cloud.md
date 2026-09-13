@@ -20,7 +20,7 @@ The full `build` job cannot, for hard platform limits:
 
 | Limit | GitHub-hosted runners | What a ChromiumOS build needs |
 |---|---|---|
-| Disk (standard runner) | 14 GB | ≥ 150 GB (checkout ~100 GB + chroot + sysroots + images) |
+| Disk (standard runner) | ~90 GB free — **87 GiB measured** by the workflow's own preflight on a GitHub-hosted run ([run 34760595919](https://github.com/Davidix07TV/prismOS/actions/runs/34760595919), 2026-09-13) | ≥ 150 GB (checkout ~100 GB + chroot + sysroots + images) |
 | Max duration **per job** | **6 hours** (hard cap on hosted runners) | cold build: `repo sync` 1–3 h + `cros_sdk` chroot ~1 h + `build_packages` 4–10 h (it compiles the Chromium browser) + `build_image` |
 | Persistence between runs | none; `actions/cache` is capped at **10 GB per repo** | a ~100 GB checkout must persist, otherwise every run restarts from zero and hits the 6-hour wall again |
 | Larger runners (more disk/CPU) | billed **per minute even on public repos** ($0.012/min 4 vCPU … $0.252/min 96 vCPU, Linux x64) and require a **GitHub Team/Enterprise Cloud plan** — personal Free/Pro accounts cannot create them | — |
@@ -147,8 +147,9 @@ works unchanged), or route 2.1 directly inside the VM.
 
 ## 5. The genuinely free online route: cloud trial credits
 
-No free *tier* anywhere can host this build — GitHub-hosted runners have 14 GB
-of disk and a 6-hour cap, GitHub Codespaces gives 15 GB of storage, GitLab.com
+No free *tier* anywhere can host this build — GitHub-hosted runners measure 87 GiB
+of free disk against a ≥150 GiB floor and cap every job at 6 hours, GitHub
+Codespaces gives 15 GB of storage, GitLab.com
 SaaS runners are smaller still, Google Cloud's always-free e2-micro has 1 GB
 RAM / 30 GB disk, and Oracle's always-free tier is either 1 GB x86 or ARM
 Ampere (ChromiumOS cannot cross-build an amd64 image from an arm64 host).

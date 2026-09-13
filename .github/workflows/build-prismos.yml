@@ -11,8 +11,10 @@
 #    build     - runs the REAL ChromiumOS compilation (setup_board,
 #                build_packages, build_image) and uploads the image.
 #                ChromiumOS needs >= 150 GB of disk, >= 8 GB of RAM and a
-#                cros_sdk chroot: GitHub-hosted standard runners (14 GB disk
-#                ephemeral, no KVM) CANNOT do it. Target therefore:
+#                cros_sdk chroot: GitHub-hosted standard runners CANNOT do it
+#                (measured 2026-09-13 on a real run, id 34760595919: 87 GiB
+#                of free disk against the >=150 GiB floor, plus the 6-hour
+#                per-job cap against 8-15 h of cold build). Target therefore:
 #                  * a self-hosted runner with the ChromiumOS checkout already
 #                    synced (recommended: label "prismos-builder"), or
 #                  * a GitHub large runner (e.g. ubuntu-24.04-32-cores-128gb
@@ -206,20 +208,14 @@ jobs:
   build:
     # The real compilation runs ONLY on manual dispatch: a push-triggered run
     # would queue forever waiting for a self-hosted runner that may not exist.
-    # TEMPORARY proof-of-hardware run: a push whose commit message contains
-    # [proof-hosted-build] executes THIS REAL job on a GitHub-hosted runner so
-    # the preflight evidence comes from GitHub's own machine. Reverted right
-    # after the proof run.
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      contains(github.event.head_commit.message, '[proof-hosted-build]')
+    if: github.event_name == 'workflow_dispatch'
     name: Build prismOS image (${{ inputs.edition || 'manual dispatch only' }})
     needs: validate
     # The || fallback keeps the label valid on push-triggered runs (where
     # inputs are null); the job-level if: skips them anyway. Expressions are
     # NOT allowed in workflow_dispatch input defaults, hence the empty-string
     # default for chromiumos_path above.
-    runs-on: ${{ inputs.runner_label || (contains(github.event.head_commit.message, '[proof-hosted-build]') && 'ubuntu-latest') || 'prismos-builder' }}
+    runs-on: ${{ inputs.runner_label || 'prismos-builder' }}
     timeout-minutes: 1440
     steps:
       - name: Checkout prismOS

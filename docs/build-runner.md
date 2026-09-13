@@ -16,8 +16,8 @@ Compiling ChromiumOS is impossible on GitHub-hosted standard runners:
 
 | Resource | GitHub standard runner | ChromiumOS build | prismOS runner host |
 |---|---|---|---|
-| Disk | 14 GB | ~100 GiB checkout + ~50 GiB chroot/images | **≥ 150 GiB free** |
-| RAM | 7 GB | 8 GiB minimum, 16 GiB comfortable | **≥ 8 GiB** |
+| Disk | ~90 GB free (87 GiB measured on a real run, 2026-09) | ~100 GiB checkout + ~50 GiB chroot/images | **≥ 150 GiB free** |
+| RAM | 16 GB (published spec) | 8 GiB minimum, 16 GiB comfortable | **≥ 8 GiB** |
 | CPU | 2–4 cores | `build_packages` is hours on 2 cores | 4+ cores recommended |
 | KVM | absent | not required to build, speeds up tests | optional |
 | `cros_sdk` | cannot run (needs passwordless sudo + loop devices) | required | any x86_64 Linux with sudo |
