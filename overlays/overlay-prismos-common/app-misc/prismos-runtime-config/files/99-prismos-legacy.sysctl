@@ -1,0 +1,90 @@
+# =============================================================================
+#  /etc/sysctl.d/99-prismos-legacy.conf   (app-misc/prismos-runtime-config)
+# -----------------------------------------------------------------------------
+#  Tuning del kernel per macchine con 1-2 GB di RAM, 2 core (Arrandale) e
+#  disco meccanico o SSD SATA di prima generazione.
+# =============================================================================
+
+# --- Memoria ---------------------------------------------------------------------
+# Con zram attivo una swappiness alta e' corretta: la compressione zstd costa
+# poco su 2 core e la swap su zram e' molto piu' veloce del disco.
+vm.swappiness = 100
+vm.page-cluster = 0
+vm.watermark_scale_factor = 150
+vm.watermark_boost_factor = 0
+vm.min_free_kbytes = 16384
+vm.extra_free_kbytes = 8192
+vm.vfs_cache_pressure = 50
+vm.dirty_ratio = 10
+vm.dirty_background_ratio = 3
+vm.dirty_expire_centisecs = 1500
+vm.dirty_writeback_centisecs = 300
+vm.overcommit_memory = 0
+vm.overcommit_ratio = 80
+vm.oom_kill_allocating_task = 0
+vm.panic_on_oom = 0
+vm.compact_unevictable_allowed = 1
+vm.compaction_proactiveness = 20
+vm.stat_interval = 2
+vm.laptop_mode = 5
+
+# --- Kernel --------------------------------------------------------------------------
+# NMI watchdog: un interrupt al secondo per core, inutile su un laptop legacy e
+# fonte di wake-up che impedisce lo stato C4 del package.
+kernel.nmi_watchdog = 0
+kernel.watchdog = 0
+kernel.soft_watchdog = 0
+kernel.sched_autogroup_enabled = 1
+kernel.sched_latency_ns = 12000000
+kernel.sched_min_granularity_ns = 1500000
+kernel.sched_wakeup_granularity_ns = 2000000
+kernel.sched_migration_cost_ns = 2000000
+kernel.panic = 10
+kernel.panic_on_oops = 1
+kernel.hung_task_timeout_secs = 60
+kernel.printk = 4 4 1 7
+kernel.perf_event_paranoid = 3
+kernel.kptr_restrict = 2
+kernel.dmesg_restrict = 1
+kernel.yama.ptrace_scope = 1
+
+# --- Filesystem ------------------------------------------------------------------------
+fs.file-max = 131072
+fs.nr_open = 131072
+fs.inotify.max_user_watches = 16384
+fs.inotify.max_user_instances = 128
+fs.inotify.max_queued_events = 16384
+fs.suid_dumpable = 0
+fs.protected_hardlinks = 1
+fs.protected_symlinks = 1
+fs.protected_fifos = 2
+fs.protected_regular = 2
+
+# --- Rete --------------------------------------------------------------------------------
+# fq_codel + BBR: migliora latenza di Meet/Zoom e lo streaming su linee congestionate.
+net.core.default_qdisc = fq_codel
+net.ipv4.tcp_congestion_control = bbr
+net.ipv4.tcp_fastopen = 3
+net.ipv4.tcp_mtu_probing = 1
+net.ipv4.tcp_fin_timeout = 15
+net.ipv4.tcp_keepalive_time = 300
+net.ipv4.tcp_tw_reuse = 1
+net.ipv4.tcp_slow_start_after_idle = 0
+net.ipv4.tcp_window_scaling = 1
+net.core.rmem_max = 4194304
+net.core.wmem_max = 4194304
+net.ipv4.tcp_rmem = 4096 131072 4194304
+net.ipv4.tcp_wmem = 4096 65536 4194304
+net.core.netdev_max_backlog = 2000
+net.ipv4.neigh.default.gc_thresh1 = 128
+net.ipv4.neigh.default.gc_thresh2 = 1024
+net.ipv4.neigh.default.gc_thresh3 = 2048
+# Forwarding richiesto dal NAT del container Waydroid (bridge waydroid0).
+net.ipv4.ip_forward = 1
+net.ipv4.conf.all.rp_filter = 2
+net.ipv4.conf.default.rp_filter = 2
+net.ipv4.conf.all.send_redirects = 0
+net.ipv4.conf.all.accept_redirects = 0
+net.ipv4.conf.all.accept_source_route = 0
+net.ipv6.conf.all.accept_redirects = 0
+net.ipv6.conf.all.disable_ipv6 = 0

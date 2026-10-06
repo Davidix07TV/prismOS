@@ -1,0 +1,11 @@
+Tema di icone prismOS-Squircle per prismOS
+Generato automaticamente da scripts/generate_app_icons.sh a partire da
+profiles/app_pool.json (campi "glyph" e "color" di ciascuna applicazione).
+
+Forma: superellisse |x/a|^n + |y/a|^n = 1 con n=5.0, lato 128.
+Le icone di sistema della Dock (prismos-launcher, prismos-waydroid,
+prismos-wine, ...) sono definite in SYSTEM_ICONS nello stesso script.
+
+I marchi e i nomi delle applicazioni appartengono ai rispettivi titolari; le
+icone qui generate sono segnaposto vettoriali originali (glifo su fondo
+squircle) e non riproducono i loghi ufficiali.

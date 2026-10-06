@@ -1,0 +1,77 @@
+# =============================================================================
+#  /var/lib/waydroid/waydroid_mainline.prop   (prismOS Legacy)
+# -----------------------------------------------------------------------------
+#  Secondo livello di proprieta', applicato quando vendor_type = MAINLINE
+#  (kernel ospite, nessun vendor Halium). Le chiavi presenti qui prevalgono su
+#  quelle di waydroid_base.prop.
+# =============================================================================
+
+# --- Kernel ospite: servizi che NON esistono in un container Waydroid ---------
+ro.hardware=prismos_waydroid
+ro.boot.hardware=prismos_waydroid
+ro.boot.bootloader=prismos-u-boot
+ro.boot.serialno=prismos-waydroid
+ro.hardware.sensors=
+ro.hardware.gps=
+ro.hardware.camera=
+ro.hardware.nfc=
+ro.hardware.fingerprint=
+ro.hardware.keystore=soft
+ro.hardware.keystore_desede=true
+ro.hardware.thermal=
+persist.sys.timezone=Europe/Rome
+
+# --- Binder / IPC su kernel ChromeOS ------------------------------------------
+# Il kernel prismOS abilita CONFIG_ANDROID_BINDERFS=y; i nodi sono
+# /dev/binderfs/{binder,hwbinder,vndbinder}.
+ro.hardware.binder=binderfs
+persist.waydroid.binder.nodes=binder,hwbinder,vndbinder
+persist.waydroid.ashmem=fallback
+ro.hwbinder.use_fmq=false
+
+# --- Feature dichiarate al framework -------------------------------------------
+# ro.hardware.* vuoti disattivano i HAL mancanti; qui si rimuovono le feature
+# che farebbero crashare system_server su un PC senza modem/sensori.
+ro.build.version.all_codenames=
+ro.build.version.preview_sdk=0
+ro.build.version.codename=REL
+ro.config.alarm_alert=Alarm_Classic.ogg
+ro.config.notification_sound=OnTheHunt.ogg
+ro.config.ringtone=Ring_Synth_04.ogg
+ro.setupwizard.mode=DISABLED
+ro.com.google.gmsversion=
+ro.com.google.apphider=off
+persist.sys.locale=it-IT
+persist.sys.language=it
+persist.sys.country=IT
+persist.sys.wifi.country_code=IT
+ro.product.locale=it-IT
+
+# --- Waydroid / integrazione con la sessione Ash -------------------------------
+persist.waydroid.width=1366
+persist.waydroid.height=768
+persist.waydroid.multi_windows=true
+persist.waydroid.scale=1.0
+persist.waydroid.no_touch=false
+persist.waydroid.host_wayland=wayland-exo
+persist.waydroid.session_timeout=0
+persist.waydroid.ondemand=true
+
+# --- Prestazioni: 2 core, disco lento -------------------------------------------
+persist.sys.dalvik.hyperthreading=false
+persist.sys.background_dexopt=false
+persist.sys.disable_rescue=true
+persist.sys.fast_dexopt=true
+pm.dexopt.install=speed-profile
+pm.dexopt.bg-dexopt=speed-profile
+pm.dexopt.boot-after-ota=verify
+pm.dexopt.first-boot=verify
+pm.dexopt.ab-ota=speed-profile
+ro.sys.fw.dex2oat_thread_count=2
+
+# --- Telemetria / OTA disattivati --------------------------------------------------
+ro.config.low_ram=true
+persist.traced.enable=0
+persist.log.tag=INFO
+ro.statsd.enable=false
+ro.build.fingerprint=prismOS/prismos_waydroid/prismos_waydroid:9/PQ3A.190801.002/legacy:userdebug/release-keys

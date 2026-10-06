@@ -1,0 +1,41 @@
+# =============================================================================
+#  /etc/default/chromium-browser   -   prismOS Work
+# -----------------------------------------------------------------------------
+#  Opzioni di avvio del browser per la edizione aziendale. Nessuna iscrizione
+#  automatica forzata (il dispositivo puo' restare non gestito o essere iscritto
+#  al tenant aziendale dall'utente), ma la policy locale di
+#  /etc/chromium/policies/managed/prismos_policy.json resta attiva.
+# =============================================================================
+
+PRISMOS_EDITION="work"
+PRISMOS_EDU_MODE="none"
+
+# --- Flag grafici (Intel HD Graphics Gen5: niente Vulkan, OpenGL 2.1 via crocus) ---
+PRISMOS_GPU_FLAGS="--use-gl=angle --use-angle=gl --ignore-gpu-blocklist \
+--enable-gpu-rasterization=false --disable-gpu-sandbox --num-raster-threads=1 \
+--disable-features=VaapiVideoDecoder,VaapiVideoEncoder,UseChromeOSDirectVideoDecoder,Vulkan,DefaultANGLEVulkan \
+--enable-features=CanvasOopRasterization"
+
+# --- Sottosistema Android di Google disattivato a livello di comando -----------------
+PRISMOS_ARC_FLAGS="--arc-availability=none"
+
+# --- Dock macOS-like ---------------------------------------------------------------------
+PRISMOS_DOCK_FLAGS="--ash-shelf-alignment=bottom --ash-autohide-shelf=always \
+--ash-launcher-button-position=center"
+
+# --- Produttivita' ---------------------------------------------------------------------------
+# Il download manager aziendale deve vedere i file dentro il vault cifrato.
+PRISMOS_WORK_FLAGS="--download-default-directory=/home/chronos/user/Downloads \
+--enable-features=DownloadBubble,FilesAppExperimental"
+
+CHROMIUM_FLAGS="${PRISMOS_GPU_FLAGS} ${PRISMOS_ARC_FLAGS} ${PRISMOS_DOCK_FLAGS} ${PRISMOS_WORK_FLAGS}"
+
+CHROMIUM_HOME="/opt/google/chrome"
+CHROME_USER_DATA_DIR="/home/chronos/user"
+LIBVA_DRIVER_NAME="i965"
+MESA_LOADER_DRIVER_OVERRIDE="crocus"
+LIBGL_DRI3_DISABLE="1"
+
+export CHROMIUM_FLAGS CHROMIUM_HOME CHROME_USER_DATA_DIR
+export LIBVA_DRIVER_NAME MESA_LOADER_DRIVER_OVERRIDE LIBGL_DRI3_DISABLE
+export PRISMOS_EDITION PRISMOS_EDU_MODE

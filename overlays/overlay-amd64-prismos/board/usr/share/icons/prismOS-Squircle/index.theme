@@ -1,0 +1,23 @@
+# =============================================================================
+#  prismOS-Squircle :: index.theme
+#  Generato da scripts/generate_app_icons.sh - NON modificare a mano.
+#  Tema vettoriale interamente scalabile: le icone sono superellissi (squircle)
+#  con esponente 5.0 e lato 128.
+# =============================================================================
+[Icon Theme]
+Name=prismOS-Squircle
+Name[it]=prismOS Squircle
+Comment=macOS-like squircle icon theme for the prismOS Ash shelf
+Comment[it]=Tema di icone squircle in stile macOS per la Dock di prismOS
+Inherits=hicolor
+Directories=apps/scalable
+
+# Ash e GTK richiedono almeno una directory dichiarata; il tema e' interamente
+# scalabile, quindi MinSize e MaxSize coprono l'intero intervallo di rendering
+# della Dock (da 16 a 512 px, con icone a 32 px nominali).
+[apps/scalable]
+Size=32
+MinSize=16
+MaxSize=512
+Context=Applications
+Type=Scalable

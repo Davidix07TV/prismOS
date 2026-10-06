@@ -1,0 +1,26 @@
+# =============================================================================
+#  /etc/default/earlyoom   -   prismOS Slim
+# -----------------------------------------------------------------------------
+#  earlyoom interviene PRIMA dell'OOM killer del kernel: quando la memoria
+#  libera scende sotto la soglia, termina il processo con il punteggio peggiore
+#  (tipicamente il container Waydroid o un renderer di Chromium) invece di
+#  lasciare che il kernel congeli l'intera sessione Ash.
+#
+#  Su macchine con 1-2 GB questa e' la differenza fra un rallentamento e un
+#  blocco completo del portatile.
+# =============================================================================
+
+# -m 8   : interviene quando la memoria fisica disponibile scende sotto l'8%
+# -s 3   : interviene quando la swap disponibile scende sotto il 3%
+# -r 5   : controlla ogni 5 decimi di secondo (intervallo di polling)
+# --prefer '^(chrome|wineserver)$' : a parita' di punteggio, preferisce questi
+# -a     : invia SIGTERM e, se ignorato, SIGKILL dopo 2 s
+# -g     : rimuove dal kernel i processi terminati (kill dell'intero process group)
+# --avoid '^(session_manager|ash|chromiumos|systemd|prismos-accelerator-daemon)$'
+#          non terminare mai i componenti vitali della sessione
+EARLYOOM_ARGS="-m 8 -s 3 -r 5 -a -g --prefer '^(chrome|wineserver|lxc-start)$' --avoid '^(systemd|session_manager|chrome|prismos-accelerator-daemon|prismos-dock-apply)$'"
+
+# Livello di log: 0 = silenzioso, 1 = solo interventi, 7 = debug.
+EARLYOOM_LOGLEVEL="1"
+
+EARLYOOM_ENABLED="1"

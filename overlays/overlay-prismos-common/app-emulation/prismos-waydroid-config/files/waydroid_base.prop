@@ -1,0 +1,160 @@
+# =============================================================================
+#  /var/lib/waydroid/waydroid_base.prop   (prismOS Legacy)
+# -----------------------------------------------------------------------------
+#  Proprieta' di base del container Android 9 (LineageOS 16.0 x86).
+#  Waydroid le fonde con waydroid_mainline.prop e le inietta nel container come
+#  /system/etc/prop.default prima dell'avvio di init.
+#
+#  REGOLA ASSOLUTA: nessuna proprieta' deve abilitare path di codice che
+#  richiedano SSE4.2 o POPCNT. ART legge dalvik.vm.isa.*.features per
+#  selezionare i backend del compilatore JIT/AOT: se dichiarasse sse4_2,
+#  dex2oat genererebbe codice con crc32/pcmpgtq e l'app terminerebbe con
+#  SIGILL alla prima esecuzione su Pentium P6100.
+# =============================================================================
+
+# --- Identita' prodotto -------------------------------------------------------
+ro.product.brand=prismOS
+ro.product.manufacturer=prismOS
+ro.product.model=prismOS Legacy (Waydroid)
+ro.product.device=prismos_waydroid
+ro.product.name=lineage_prismos_x86
+ro.product.board=prismos_x86_legacy
+ro.build.product=prismos_waydroid
+ro.build.flavor=lineage_prismos_x86-userdebug
+ro.build.display.id=prismOS-16.0-legacy-nosse42
+ro.build.description=lineage_prismos_x86-user 9 PQ3A.190801.002 prismos-legacy
+ro.build.version.release=9
+ro.build.version.sdk=28
+ro.build.version.security_patch=2019-09-05
+ro.build.type=userdebug
+ro.build.tags=release-keys
+ro.build.host=prismos-builder
+ro.build.user=prismos
+ro.build.characteristics=default
+ro.build.expect.baseband=n/a
+
+# --- ABI: solo x86, traduzione ARM DISATTIVATA --------------------------------
+# libhoudini e libndk_translation richiedono almeno SSE4.2/POPCNT per il
+# decoding dei pattern ARM: su questo floor ISA non sono utilizzabili. Le app
+# ARM-only vanno sostituite con le build x86 (o con le web app equivalenti
+# presenti in profiles/app_pool.json).
+ro.product.cpu.abi=x86
+ro.product.cpu.abi2=
+ro.product.cpu.abilist=x86
+ro.product.cpu.abilist32=x86
+ro.product.cpu.abilist64=
+ro.product.vendor.cpu.abilist=x86
+ro.product.vendor.cpu.abilist32=x86
+ro.product.vendor.cpu.abilist64=
+ro.product.system.cpu.abilist=x86
+ro.dalvik.vm.native.bridge=0
+ro.enable.native.bridge.exec=0
+
+# --- ART / Dalvik: feature ISA esplicite --------------------------------------
+# Notazione ART: + abilita, - disabilita, "default" usa il rilevamento CPUID.
+# Qui il rilevamento e' SOSTITUITO da una lista statica perche' il container
+# vede il CPUID ospite (che su alcuni Arrandale riporta sse4_2 per i die Core
+# ma non per i die Pentium): meglio non affidarsi al runtime.
+# "variant" seleziona il sottoinsieme ISA che dex2oat assume come baseline per
+# il codice generato. I valori nehalem/sandybridge/ivybridge/haswell implicano
+# SSE4.2 e POPCNT e sono FATALI su Arrandale/Pentium: il codice compilato AOT
+# terminerebbe con SIGILL alla prima istruzione pcmpistri o crc32. Si usano le
+# varianti generiche (x86 = SSE2/SSE3, x86_64 = SSE2); la lista esplicita delle
+# feature qui sotto aggiunge SSE4.1 e toglie tutto cio' che il target non ha.
+dalvik.vm.isa.x86.variant=x86
+dalvik.vm.isa.x86.features=+sse2,+sse3,+ssse3,+sse4_1,-sse4_2,-popcnt,-avx,-avx2,-bmi,-bmi2,-f16c,-fma,-aes,-pclmul
+# L'ABI x86_64 non e' esposta (ro.product.cpu.abilist64 e' vuota): le chiavi che
+# seguono restano per coerenza e per impedire che un aggiornamento del vendor le
+# valorizzi con una variante che richiede SSE4.2.
+dalvik.vm.isa.x86_64.variant=x86_64
+dalvik.vm.isa.x86_64.features=+sse2,+sse3,+ssse3,+sse4_1,-sse4_2,-popcnt,-avx,-avx2
+dalvik.vm.dex2oat-Xms=32m
+dalvik.vm.dex2oat-Xmx=256m
+dalvik.vm.dex2oat-threads=2
+dalvik.vm.dex2oat-cpu-set=0,1
+dalvik.vm.image-dex2oat-threads=2
+dalvik.vm.image-dex2oat-cpu-set=0,1
+dalvik.vm.dex2oat-filter=speed-profile
+dalvik.vm.dex2oat-minidebuginfo=false
+dalvik.vm.usejit=true
+dalvik.vm.usejitprofiles=true
+dalvik.vm.jitinitialsize=8m
+dalvik.vm.jitmaxsize=32m
+dalvik.vm.jitprithreadweight=8
+dalvik.vm.heapstartsize=8m
+dalvik.vm.heapgrowthlimit=128m
+dalvik.vm.heapsize=256m
+dalvik.vm.heaptargetutilization=0.75
+dalvik.vm.heapminfree=512k
+dalvik.vm.heapmaxfree=8m
+dalvik.vm.stack-trace-dir=/data/anr
+dalvik.vm.lockprof.threshold=500
+ro.dalvik.vm.enable_uffd_gc=0
+persist.sys.dalvik.vm.lib.2=libart.so
+
+# --- Grafica: Intel HD Graphics Gen5 (Ironlake) -------------------------------
+# Nessun Vulkan, OpenGL 2.1 via crocus. SwiftShader come renderer GL ES 2.0:
+# su 2 core e' lento ma e' l'unica via deterministica (niente GPU hang).
+ro.hardware.gralloc=minigbm
+ro.hardware.egl=swiftshader
+ro.hardware.vulkan=
+ro.hardware.hwcomposer=drm_hwc
+ro.opengles.version=131072
+debug.hwui.renderer=skiagl
+debug.egl.hw=0
+debug.sf.hw=1
+debug.composition.type=gpu
+debug.enabletr=0
+debug.gr.numframebuffers=2
+debug.sf.nobootanimation=1
+persist.sys.ui.hw=0
+ro.surface_flinger.max_frame_buffer_acquired_buffers=2
+ro.surface_flinger.use_color_management=false
+ro.surface_flinger.protected_contents=false
+ro.surface_flinger.has_wide_color_display=false
+ro.surface_flinger.present_time_offset_from_vsync_ns=0
+ro.sf.lcd_density=160
+ro.sf.lcd_density_min=120
+
+# --- Memoria: profilo conservativo per host <2 GB -----------------------------
+ro.config.low_ram=true
+ro.lmk.low_ram=true
+ro.lmk.critical_upgrade=false
+ro.lmk.medium=800
+ro.lmk.critical=900
+ro.lmk.upgrade_pressure=40
+ro.lmk.downgrade_pressure=60
+ro.lmk.kill_heaviest_task=true
+ro.lmk.swap_free_low_percentage=10
+persist.sys.purgeable_assets=1
+sys.sysctl.extra_free_kbytes=6144
+ro.sys.fw.bg_apps_limit=4
+ro.sys.fw.empty_app_percent=25
+persist.sys.strictmode.disable=1
+
+# --- Audio / input ------------------------------------------------------------
+ro.audio.ignore_effects=true
+persist.audio.fluence.voicecall=false
+ro.input.low_latency=true
+persist.sys.input.method=
+ro.hwui.text_large_cache_width=2048
+
+# --- Rete / telefonia (assente su PC) -----------------------------------------
+ro.radio.noril=true
+ro.carrier=wifi-only
+ro.com.google.clientidbase=android-prismos
+persist.radio.multisim.config=
+gsm.sim.operator.alpha=
+wifi.interface=wlan0
+ro.bootmode=unknown
+ro.boot.hardware=prismos_waydroid
+
+# --- Sicurezza / verifiche -----------------------------------------------------
+ro.secure=1
+ro.debuggable=1
+ro.adb.secure=0
+ro.allow.mock.location=0
+persist.sys.usb.config=adb
+service.adb.tcp.port=0
+ro.crypto.state=unencrypted
+ro.oem_unlock_supported=0

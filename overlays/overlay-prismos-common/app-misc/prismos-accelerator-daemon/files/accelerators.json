@@ -1,0 +1,93 @@
+{
+  "schema_version": "1.0.0",
+  "description": "Scorciatoie globali di prismOS per la sessione Ash/Aura. Ogni voce viene intercettata a livello evdev e tradotta nella combinazione di tasti che Ash gia' riconosce (KEY_SEARCH e' il tasto Search/Launcher dei Chromebook). Nessun acceleratore richiede patch di Chromium.",
+  "device_filter": [],
+  "grab_devices": true,
+  "inject_delay_ms": 8,
+  "accelerators": [
+    {
+      "id": "app_launcher",
+      "trigger": "super+shift+space",
+      "action": "inject_keys",
+      "keys": ["KEY_LEFTMETA", "KEY_SEARCH"],
+      "description": "Ricerca web diretta (equivalente di Cmd+Shift+Space su macOS)"
+    },
+    {
+      "id": "app_launcher_primary",
+      "trigger": "super+space",
+      "action": "inject_keys",
+      "keys": ["KEY_SEARCH"],
+      "description": "Apre il launcher centralizzato di Ash in modalita' ricerca (stile Spotlight)"
+    },
+    {
+      "id": "lock_screen",
+      "trigger": "super+l",
+      "action": "inject_combo",
+      "keys": ["KEY_SEARCH", "KEY_L"],
+      "description": "Blocca lo schermo (Search+L nativo di ChromeOS)"
+    },
+    {
+      "id": "show_desktop",
+      "trigger": "super+d",
+      "action": "inject_combo",
+      "keys": ["KEY_SEARCH", "KEY_D"],
+      "description": "Mostra il desktop riducendo tutte le finestre"
+    },
+    {
+      "id": "window_overview",
+      "trigger": "super+w",
+      "action": "inject_keys",
+      "keys": ["KEY_WWW"],
+      "description": "Panoramica delle finestre (tasto Overview)"
+    },
+    {
+      "id": "screenshot_full",
+      "trigger": "super+print",
+      "action": "inject_combo",
+      "keys": ["KEY_LEFTCTRL", "KEY_LEFTMETA", "KEY_SYSRQ"],
+      "description": "Cattura l'intero schermo"
+    },
+    {
+      "id": "switch_app_1",
+      "trigger": "super+1",
+      "action": "inject_combo",
+      "keys": ["KEY_LEFTMETA", "KEY_1"],
+      "description": "Passa alla prima applicazione bloccata sulla Dock"
+    },
+    {
+      "id": "switch_app_2",
+      "trigger": "super+2",
+      "action": "inject_combo",
+      "keys": ["KEY_LEFTMETA", "KEY_2"],
+      "description": "Passa alla seconda applicazione bloccata sulla Dock"
+    },
+    {
+      "id": "switch_app_3",
+      "trigger": "super+3",
+      "action": "inject_combo",
+      "keys": ["KEY_LEFTMETA", "KEY_3"],
+      "description": "Passa alla terza applicazione bloccata sulla Dock"
+    },
+    {
+      "id": "switch_app_4",
+      "trigger": "super+4",
+      "action": "inject_combo",
+      "keys": ["KEY_LEFTMETA", "KEY_4"],
+      "description": "Passa alla quarta applicazione bloccata sulla Dock"
+    },
+    {
+      "id": "subsystem_status",
+      "trigger": "super+ctrl+s",
+      "action": "exec",
+      "command": ["/usr/bin/prismos-slim-launcher", "status"],
+      "description": "Mostra lo stato dei sottosistemi Waydroid/Wine e la RAM libera"
+    },
+    {
+      "id": "subsystem_stop_all",
+      "trigger": "super+ctrl+q",
+      "action": "exec",
+      "command": ["/usr/bin/prismos-slim-launcher", "stop-all"],
+      "description": "Spegne immediatamente Waydroid e Wine liberando tutta la RAM"
+    }
+  ]
+}

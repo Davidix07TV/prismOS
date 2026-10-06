@@ -1,0 +1,31 @@
+# =============================================================================
+#  prismOS EDU :: profiles/base/make.defaults
+# -----------------------------------------------------------------------------
+#  USE di profilo dell'edizione EDU. Eredita il floor ISA e i USE comuni da
+#  prismos-common:base e li specializza per il contesto scolastico.
+# =============================================================================
+
+PRISMOS_EDITION="prismos_edition_edu"
+PRISMOS_EDITION_ID="edu"
+PROFILE_ONLY_VARIABLES="PRISMOS_EDITION PRISMOS_EDITION_ID"
+
+# cloud-enrollment : Strada A, Enterprise Enrollment automatico via dominio
+#                    istituzionale (Google Admin Console)
+# local-policy     : Strada B, policy JSON offline in
+#                    /etc/chromium/policies/managed/prismos_policy.json
+# device-restrict  : blocco USB storage, screenshot, developer tools
+# school-lab       : preset di laboratorio (reboot dopo il logout, niente guest)
+USE="${USE} prismos_edition_edu cloud-enrollment local-policy device-restrict \
+school-lab kiosk-exam waydroid wine -proton -bottles -crostini"
+
+# ARC resta escluso: il profilo comune maschera i flag, qui si ribadisce.
+USE="${USE} -arc -arc-plus -arcplusplus -arcvm"
+
+# Sottosistemi: Waydroid disponibile per le app didattiche Android (sideload di
+# APK con ABI x86), Wine mascherato nei laboratori per ridurre la superficie di
+# attacco. Crostini escluso: nessun container Linux gestibile dal DSI.
+PRISMOS_SUBSYSTEM="prismos_subsystem_waydroid"
+
+SYSTEM_PACKAGES="${SYSTEM_PACKAGES} \
+chromeos-base/prismos-edu-enrollment \
+app-admin/chromeos-policy-tool"

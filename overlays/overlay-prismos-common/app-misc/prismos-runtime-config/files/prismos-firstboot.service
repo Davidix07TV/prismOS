@@ -1,0 +1,26 @@
+# =============================================================================
+#  prismos-firstboot.service
+# -----------------------------------------------------------------------------
+#  Eseguito una sola volta al primo avvio: applica le impostazioni dell'edizione
+#  (stato dei sottosistemi, Dock/Shelf, policy) registrate in
+#  /etc/prismos/edition.conf durante la build da scripts/build_iso.sh.
+# =============================================================================
+[Unit]
+Description=prismOS first-boot edition provisioning
+ConditionPathExists=!/var/lib/prismos/state/firstboot.done
+ConditionPathExists=/etc/prismos/edition.conf
+After=local-fs.target systemd-tmpfiles-setup.service
+Before=prismos-subsystems.target graphical.target
+Wants=systemd-tmpfiles-setup.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/libexec/prismos/prismos-firstboot
+TimeoutStartSec=180
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=prismos-firstboot
+
+[Install]
+WantedBy=multi-user.target

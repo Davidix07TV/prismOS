@@ -1,0 +1,94 @@
+# =============================================================================
+#  /etc/default/chromium-browser   -   prismOS EDU (Strada A: Cloud-Managed)
+# -----------------------------------------------------------------------------
+#  File sorgiato dallo script di avvio del browser (chromeos-init-scripts /
+#  session_manager) PRIMA dell'esecuzione di chrome. Le opzioni di Enterprise
+#  Enrollment vivono qui perche' devono essere presenti gia' alla schermata di
+#  OOBE: la policy di device, al contrario, e' leggibile solo dopo l'iscrizione.
+#
+#  Questo e' il template della STRADA A. set_edu_policy.sh lo riscrive in base
+#  al dominio istituzionale inserito dall'amministratore; la STRADA B usa
+#  invece /etc/chromium/policies/managed/prismos_policy.json.
+#
+#  Requisito hardware: CPU senza SSE4.2 (Intel Pentium P6100 / Arrandale).
+#  I flag GPU qui sotto sono obbligatori: Intel HD Graphics Gen5 non ha Vulkan
+#  e supporta OpenGL 2.1 tramite il driver Mesa "crocus".
+# =============================================================================
+
+# --- Identita' dell'edizione ---------------------------------------------------
+PRISMOS_EDITION="edu"
+PRISMOS_EDU_MODE="cloud"
+PRISMOS_EDU_DOMAIN="scuola.edu"
+PRISMOS_EDU_ADMIN_CONSOLE="https://admin.google.com"
+
+# --- Flag grafici di base (tutte le edizioni) ------------------------------------
+PRISMOS_GPU_FLAGS="--use-gl=angle --use-angle=gl --ignore-gpu-blocklist \
+--enable-gpu-rasterization=false --disable-gpu-sandbox --num-raster-threads=1 \
+--disable-features=VaapiVideoDecoder,VaapiVideoEncoder,UseChromeOSDirectVideoDecoder,Vulkan,DefaultANGLEVulkan \
+--enable-features=CanvasOopRasterization"
+
+# --- Flag di memoria per macchine con 2 GB ----------------------------------------
+PRISMOS_LOW_MEM_FLAGS="--renderer-process-limit=4 --process-per-site \
+--disable-dev-shm-usage --js-flags=--max-old-space-size=512 \
+--disk-cache-size=52428800 --media-cache-size=16777216"
+
+# --- Dock macOS-like (Shelf bassa, centrata, autohide) --------------------------------
+PRISMOS_DOCK_FLAGS="--ash-shelf-alignment=bottom --ash-autohide-shelf=always \
+--ash-launcher-button-position=center"
+
+# --- Enterprise Enrollment (STRADA A) -------------------------------------------
+# I tre switch che seguono sono gli unici interruttori a riga di comando che
+# Chromium riconosce per l'iscrizione aziendale di un dispositivo ChromeOS
+# (definiti in components/policy/policy_switches.cc e
+# chromeos/constants/chromeos_switches.cc):
+#
+# --enterprise-enable-zero-touch-enrollment
+#     Attiva l'iscrizione automatica: al primo avvio la OOBE contatta il Device
+#     Management server di Google e, se il serial number del dispositivo e'
+#     censito nella Admin Console del dominio istituzionale, applica la
+#     configurazione della Organizational Unit senza intervento dell'utente.
+#
+# --enterprise-enrollment-initial-modulus-length=1
+#     Lunghezza in byte del modulo RSA del primo scambio con il DM server.
+#     Il valore 1 seleziona il modulo iniziale "legacy", compatibile con i
+#     domini registrati prima del 2018 (caso frequente negli istituti).
+#
+# --enterprise-enrollment-initial-modulus=<base64>
+#     Modulo RSA esplicito, usato quando l'istituto dispone di un DM server con
+#     certificato autofirmato. set_edu_policy.sh lo valorizza con --dm-modulus.
+#
+# --arc-availability=none
+#     Disattiva a livello di comando ARC/ARC++/ARCVM anche nel caso in cui un
+#     binario del sottosistema Android di Google fosse presente nell'immagine.
+#     E' la terza linea di difesa dopo USE=-arc e la policy ArcEnabled=false:
+#     su CPU senza SSE4.2 il container ARC entra in un loop di riavvio infinito.
+PRISMOS_ENTERPRISE_ENROLLMENT_FLAGS="--enterprise-enable-zero-touch-enrollment \
+--enterprise-enrollment-initial-modulus-length=1 \
+--arc-availability=none"
+
+# Modulo RSA del DM server: vuoto significa "usa quello integrato in ChromeOS".
+# Viene popolato da scripts/set_edu_policy.sh --dm-modulus <base64>.
+PRISMOS_EDU_DM_MODULUS=""
+if [ -n "${PRISMOS_EDU_DM_MODULUS}" ]; then
+    PRISMOS_ENTERPRISE_ENROLLMENT_FLAGS="${PRISMOS_ENTERPRISE_ENROLLMENT_FLAGS} --enterprise-enrollment-initial-modulus=${PRISMOS_EDU_DM_MODULUS}"
+fi
+
+# Il vincolo sul dominio di login NON e' esprimibile con uno switch: viene
+# applicato dalla policy UserAllowlist ("*@${PRISMOS_EDU_DOMAIN}"), che
+# set_edu_policy.sh scrive in /etc/chromium/policies/managed/prismos_policy.json
+# anche in Strada A, cosi' da funzionare prima che l'iscrizione sia completata.
+
+# Composizione finale delle opzioni passate a chrome.
+CHROMIUM_FLAGS="${PRISMOS_GPU_FLAGS} ${PRISMOS_LOW_MEM_FLAGS} ${PRISMOS_DOCK_FLAGS} \
+${PRISMOS_ENTERPRISE_ENROLLMENT_FLAGS}"
+
+# --- Variabili d'ambiente -------------------------------------------------------------
+CHROMIUM_HOME="/opt/google/chrome"
+CHROME_USER_DATA_DIR="/home/chronos/user"
+LIBVA_DRIVER_NAME="i965"
+MESA_LOADER_DRIVER_OVERRIDE="crocus"
+LIBGL_DRI3_DISABLE="1"
+
+export CHROMIUM_FLAGS CHROMIUM_HOME CHROME_USER_DATA_DIR
+export LIBVA_DRIVER_NAME MESA_LOADER_DRIVER_OVERRIDE LIBGL_DRI3_DISABLE
+export PRISMOS_EDITION PRISMOS_EDU_MODE PRISMOS_EDU_DOMAIN

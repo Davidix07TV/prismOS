@@ -1,0 +1,214 @@
+#!/usr/bin/env bash
+# =============================================================================
+#  /usr/libexec/prismos/prismos-wine-prepare  <uid>
+# -----------------------------------------------------------------------------
+#  ExecStartPre di prismos-wine-session@<uid>.service.
+#
+#  Compiti:
+#    1. garantisce l'esistenza del prefix Wine predefinito dell'utente
+#       (${PRISMOS_WINE_PREFIX_ROOT}/Default) eseguendo `wineboot -u`
+#    2. rileva il socket Wayland della sessione Ash e scrive
+#       /run/prismos/wine-<uid>.env, letto dalla unita' via EnvironmentFile=
+#    3. decide se usare DXVK o wined3d in base alla presenza reale di Vulkan
+#       (Intel HD Graphics Gen5 = nessun Vulkan -> wined3d)
+#    4. precarica nel page cache i moduli Wine piu' usati, cosi' il primo
+#       avvio di un .exe su disco meccanico scende da ~25 s a ~8 s
+#
+#  In prismOS Slim questa preparazione avviene SOLO quando l'utente apre un
+#  file .exe/.msi; alla chiusura dell'applicazione la unita' viene fermata e
+#  /usr/bin/prismos-slim-launcher esegue `wineserver -k`, liberando la RAM.
+# =============================================================================
+
+set -Eeuo pipefail
+shopt -s inherit_errexit
+
+readonly PROG="prismos-wine-prepare"
+readonly RUN_DIR="/run/prismos"
+readonly LOG_TAG="prismos-wine"
+UID_ARG="${1:-1000}"
+PREFIX_ROOT="${PRISMOS_WINE_PREFIX_ROOT:-/home/chronos/user/WineBottles}"
+DEFAULT_PREFIX="${PRISMOS_WINE_PREFIX:-Default}"
+
+log() { logger -t "${LOG_TAG}" -p user.info -- "${PROG}: $*" 2>/dev/null || true; printf '%s: %s\n' "${PROG}" "$*" >&2; }
+warn() { logger -t "${LOG_TAG}" -p user.warning -- "${PROG}: $*" 2>/dev/null || true; printf '%s: AVVISO %s\n' "${PROG}" "$*" >&2; }
+have() { command -v "$1" >/dev/null 2>&1; }
+
+if ! [[ "${UID_ARG}" =~ ^[0-9]+$ ]]; then
+  log "uid non numerico (${UID_ARG}): uso 1000"
+  UID_ARG=1000
+fi
+
+USER_NAME="$(getent passwd "${UID_ARG}" 2>/dev/null | cut -d: -f1 || true)"
+[[ -n "${USER_NAME}" ]] || USER_NAME="chronos"
+USER_HOME="$(getent passwd "${UID_ARG}" 2>/dev/null | cut -d: -f6 || true)"
+[[ -n "${USER_HOME}" ]] || USER_HOME="/home/chronos"
+RUNTIME_DIR="/run/user/${UID_ARG}"
+
+# ---------------------------------------------------------------------------
+detect_wayland_socket() {
+  local cand
+  for cand in wayland-exo wayland-0 wayland-1 wayland-2; do
+    if [[ -S "${RUNTIME_DIR}/${cand}" ]]; then
+      printf '%s' "${cand}"
+      return 0
+    fi
+  done
+  cand="$(find "${RUNTIME_DIR}" -maxdepth 1 -name 'wayland-*' -type s -printf '%f\n' 2>/dev/null | head -n1 || true)"
+  printf '%s' "${cand}"
+}
+
+detect_vulkan() {
+  local lib icd
+  for lib in /usr/lib64/libvulkan.so.1 /usr/lib/libvulkan.so.1; do
+    [[ -e "${lib}" ]] || continue
+    for icd in /usr/share/vulkan/icd.d/*.json; do
+      [[ -e "${icd}" ]] || continue
+      # anv (Intel) copre solo Gen8+; su Ironlake/Gen5 non esiste ICD valido.
+      if grep -qsi 'intel' "${icd}" 2>/dev/null; then
+        local dev
+        dev="$(lspci -nn 2>/dev/null | grep -iE 'VGA|Display' | grep -oE '8086:[0-9a-f]{4}' | head -n1 || true)"
+        case "${dev}" in
+          8086:0042|8086:0046|8086:0048|8086:0102|8086:0106|8086:0116|8086:0126)
+            printf '0'; return 0 ;;
+        esac
+      fi
+      printf '1'; return 0
+    done
+  done
+  printf '0'
+}
+
+# ---------------------------------------------------------------------------
+ensure_prefix() {
+  local prefix="${PREFIX_ROOT}/${DEFAULT_PREFIX}"
+
+  if [[ ! -d "${prefix}" ]]; then
+    mkdir -p "${prefix}" || { warn "impossibile creare ${prefix}"; return 1; }
+    chmod 0700 "${prefix}" 2>/dev/null || true
+    if [[ -w "${PREFIX_ROOT}" || ${EUID} -eq 0 ]]; then
+      chown -R "${UID_ARG}:${UID_ARG}" "${PREFIX_ROOT}" 2>/dev/null || true
+    fi
+  fi
+
+  if [[ ! -d "${prefix}/drive_c" ]]; then
+    local wine_bin=""
+    if have wine64; then wine_bin="wine64"; elif have wine; then wine_bin="wine"; fi
+    if [[ -z "${wine_bin}" ]]; then
+      warn "nessun binario wine disponibile: prefix non inizializzato"
+      return 1
+    fi
+    log "inizializzazione del prefix ${prefix} (WINEARCH=win64)"
+    # Eseguito come utente di sessione: il prefix deve essere di proprieta'
+    # dell'utente che poi lancera' i .exe.
+    sudo -u "${USER_NAME}" -H \
+      env WINEPREFIX="${prefix}" WINEARCH=win64 WINEDEBUG=-all \
+          XDG_RUNTIME_DIR="${RUNTIME_DIR}" HOME="${USER_HOME}" \
+      "${wine_bin}" wineboot -u >/dev/null 2>&1 || \
+      warn "wineboot -u ha segnalato errori (il prefix verra' riparato al primo uso)"
+  else
+    log "prefix esistente: ${prefix}"
+  fi
+  return 0
+}
+
+# ---------------------------------------------------------------------------
+write_env() {
+  local socket vulkan
+  socket="$(detect_wayland_socket)"
+  vulkan="$(detect_vulkan)"
+
+  mkdir -p "${RUN_DIR}"
+  local env_file="${RUN_DIR}/wine-${UID_ARG}.env"
+
+  {
+    printf '# Generato da %s il %s\n' "${PROG}" "$(date -Is)"
+    printf 'HOME=%s\n' "${USER_HOME}"
+    printf 'USER=%s\n' "${USER_NAME}"
+    printf 'XDG_RUNTIME_DIR=%s\n' "${RUNTIME_DIR}"
+    printf 'WINEPREFIX=%s/%s\n' "${PREFIX_ROOT}" "${DEFAULT_PREFIX}"
+    printf 'WINEARCH=win64\n'
+    printf 'WINEDEBUG=-all\n'
+    printf 'WINEDLLOVERRIDES=mscoree=d;mshtml=d\n'
+    printf 'WINEESYNC=1\n'
+    printf 'WINEFSYNC=1\n'
+    printf 'STAGING_SHARED_MEMORY=1\n'
+    printf 'PRISMOS_WINE_PREFIX_ROOT=%s\n' "${PREFIX_ROOT}"
+    printf 'PRISMOS_WINE_PREFIX=%s\n' "${DEFAULT_PREFIX}"
+    printf 'GALLIUM_DRIVER=crocus\n'
+    printf 'LIBGL_DRI3_DISABLE=1\n'
+    printf 'mesa_glthread=false\n'
+    printf 'PULSE_LATENCY_MSEC=60\n'
+    if [[ -n "${socket}" ]]; then
+      printf 'WAYLAND_DISPLAY=%s\n' "${socket}"
+      printf 'GDK_BACKEND=wayland\n'
+      printf 'QT_QPA_PLATFORM=wayland\n'
+      printf 'SDL_VIDEODRIVER=wayland,x11\n'
+    else
+      warn "nessun socket Wayland in ${RUNTIME_DIR}: Wine usera' il driver X11/Xwayland"
+      printf 'SDL_VIDEODRIVER=x11\n'
+    fi
+    if [[ -S "${RUNTIME_DIR}/bus" ]]; then
+      printf 'DBUS_SESSION_BUS_ADDRESS=unix:path=%s/bus\n' "${RUNTIME_DIR}"
+    fi
+    if [[ "${vulkan}" == "1" ]]; then
+      printf 'PROTON_USE_WINED3D=0\n'
+      printf '# Vulkan rilevato: DXVK/VKD3D utilizzabili\n'
+    else
+      printf 'PROTON_USE_WINED3D=1\n'
+      printf 'PROTON_USE_WINED3D11=1\n'
+      printf 'wined3d_VideoMemorySize=64\n'
+      printf 'wined3d_MaxShaderModelPS=3\n'
+      printf 'wined3d_MaxShaderModelVS=3\n'
+      printf 'wined3d_Multisampling=disabled\n'
+      printf 'wined3d_OffscreenRenderingMode=fbo\n'
+      printf '# Nessun Vulkan (Intel HD Graphics Gen5): DXVK/VKD3D disattivati\n'
+    fi
+  } > "${env_file}"
+
+  chown "${UID_ARG}:${UID_ARG}" "${env_file}" 2>/dev/null || true
+  chmod 0640 "${env_file}"
+  log "ambiente scritto in ${env_file} (wayland=${socket:-nessuno} vulkan=${vulkan})"
+}
+
+# ---------------------------------------------------------------------------
+prewarm() {
+  # Il primo avvio di un .exe su disco meccanico paga la lettura a freddo di
+  # ~120 MB di DLL Wine. Precaricarle nel page cache riduce la latenza.
+  local libdir
+  for libdir in /usr/lib64/wine/x86_64-unix /usr/lib64/wine/i386-windows \
+                /usr/lib/wine /usr/lib64/wine; do
+    [[ -d "${libdir}" ]] || continue
+    if have vmtouch; then
+      vmtouch -t -q "${libdir}" >/dev/null 2>&1 || true
+    else
+      # Fallback: lettura sequenziale a blocchi, senza occupare il processo.
+      find "${libdir}" -maxdepth 1 \( -name '*.so' -o -name '*.dll' \) 2>/dev/null \
+        | head -n 400 \
+        | while IFS= read -r f; do
+            dd if="${f}" of=/dev/null bs=64k 2>/dev/null || true
+          done
+    fi
+  done
+  log "cache dei moduli Wine preriscaldata"
+}
+
+# ---------------------------------------------------------------------------
+verify_isa() {
+  if ! grep -m1 '^flags' /proc/cpuinfo 2>/dev/null | grep -q 'sse4_1'; then
+    warn "CPU senza SSE4.1: Wine potrebbe non avviarsi correttamente"
+  fi
+  if ! grep -m1 '^flags' /proc/cpuinfo 2>/dev/null | grep -q 'sse4_2'; then
+    log "CPU senza SSE4.2 rilevata: wined3d in modalita' SSE4.1 (corretto)"
+  fi
+}
+
+main() {
+  log "preparazione sessione Wine per uid=${UID_ARG} (${USER_NAME})"
+  verify_isa
+  ensure_prefix || warn "prefix non pronto: verra' creato al primo avvio"
+  write_env
+  prewarm
+  log "sessione Wine pronta"
+}
+
+main "$@"

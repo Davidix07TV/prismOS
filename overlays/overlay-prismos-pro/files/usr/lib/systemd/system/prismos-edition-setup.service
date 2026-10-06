@@ -1,0 +1,45 @@
+# =============================================================================
+#  prismos-edition-setup.service - PRO edition chooser at first setup
+# -----------------------------------------------------------------------------
+#  Shipped only by the PRO image (overlay-prismos-pro rootfs tree) and enabled
+#  at build time through SERVICES_ENABLE in profiles/pro.conf.
+#
+#  Ordering matters: this unit runs BEFORE prismos-firstboot.service, because
+#  firstboot reads /etc/prismos/edition.conf to decide subsystem states, dock
+#  parameters and target aggregation. Replacing that file afterwards would
+#  require a second boot; replacing it here makes the first boot behave
+#  exactly like a native edition build.
+#
+#  The Condition on the stamp makes the unit a no-op on every subsequent boot,
+#  and prismos-edition-setup --rechoose is the sanctioned way to ask again.
+# =============================================================================
+
+[Unit]
+Description=prismOS PRO edition chooser (edu/home/work/slim at first setup)
+Documentation=https://github.com/Davidix07TV/prismOS/blob/main/docs/edizioni.md
+DefaultDependencies=no
+After=local-fs.target systemd-tmpfiles-setup.service
+Before=prismos-firstboot.service
+Wants=local-fs.target
+ConditionPathExists=!/var/lib/prismos/state/edition-choice.done
+ConditionPathExists=/usr/share/prismos/editions
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/prismos/prismos-edition-setup
+TimeoutStartSec=180
+RemainAfterExit=no
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=prismos-edition-setup
+# The chooser may prompt on the system console: keep the capability but drop
+# everything else.
+NoNewPrivileges=no
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+PrivateTmp=yes
+ReadWritePaths=/etc /var/lib/prismos
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,398 @@
+#!/usr/bin/env bash
+# =============================================================================
+#  /usr/bin/prismos-wine-run
+# -----------------------------------------------------------------------------
+#  Punto di ingresso unificato per l'esecuzione di eseguibili Windows
+#  (.exe / .msi / .bat / .com) su prismOS Legacy.
+#
+#  Caratteristiche:
+#    * prefix per-applicazione o condiviso, creato on-demand alla prima esecuzione
+#    * ambiente ottimizzato per Intel HD Graphics Gen5 (Ironlake):
+#        - wined3d (OpenGL 2.1) invece di DXVK/VKD3D (Vulkan assente)
+#        - fsync abilitato (riduce i context switch su 2 core)
+#        - GLSL disattivato per le app d3d9 pesanti (shader model 2 fallback)
+#    * integrazione con Proton: se un prefix Proton e' presente, vengono usate
+#      le sue DLL (wine-wayland, lsteamclient) senza installare Steam
+#    * integrazione con Bottles: se `bottles-cli` e' disponibile e il prefix ha
+#      nome compatibile, l'esecuzione passa a Bottles per la gestione delle
+#      dipendenze
+#    * hook per prismOS Slim: se /usr/bin/prismos-slim-launcher esiste e la
+#      variabile PRISMOS_ON_DEMAND=1, il controllo del ciclo di vita (avvio e
+#      kill del sottosistema) viene delegato a quell'helper
+#
+#  USO
+#    prismos-wine-run [opzioni] <eseguibile> [argomenti...]
+#
+#  OPZIONI
+#    -p, --prefix NOME     prefix in ${PRISMOS_WINE_PREFIX_ROOT}/NOME (default: Default)
+#    -a, --arch win32|win64  architettura del nuovo prefix (default: win64)
+#    -w, --wait            attende la terminazione (default: si')
+#    -n, --no-wait         ritorna subito dopo l'avvio
+#        --install DLL     esegue `winetricks DLL` nel prefix prima del lancio
+#        --proton          forza l'uso del runtime Proton se presente
+#        --dry-run         stampa l'ambiente e il comando senza eseguirlo
+#    -v, --verbose         log dettagliato su stderr
+#    -h, --help            questo messaggio
+#
+#  CODICI DI USCITA
+#    0 ok | 1 errore generico | 2 file non trovato | 3 Wine non installato
+#    7 prefix non inizializzabile | 10 SIGILL (binario con SSE4.2/AVX)
+# =============================================================================
+
+set -Eeuo pipefail
+shopt -s inherit_errexit
+
+readonly PROG="prismos-wine-run"
+readonly VERSION="1.0.0"
+PREFIX_ROOT="${PRISMOS_WINE_PREFIX_ROOT:-/home/chronos/user/WineBottles}"
+PREFIX_NAME="${PRISMOS_WINE_PREFIX:-Default}"
+WINE_ARCH="win64"
+WAIT_FOR_EXIT=1
+DRY_RUN=0
+VERBOSE=0
+USE_PROTON=0
+INSTALL_DLLS=()
+TARGET=""
+TARGET_ARGS=()
+
+log()   { printf '%s: %s\n' "${PROG}" "$*" >&2; }
+vlog()  { [[ ${VERBOSE} -eq 1 ]] && printf '%s: %s\n' "${PROG}" "$*" >&2 || true; }
+die()   { local c="$1"; shift; log "ERRORE: $*"; exit "${c}"; }
+have()  { command -v "$1" >/dev/null 2>&1; }
+
+usage() { sed -n '2,45p' "$0" | sed 's/^# \{0,1\}//'; }
+
+parse_args() {
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -p|--prefix)   PREFIX_NAME="${2:?}"; shift 2 ;;
+      -a|--arch)     WINE_ARCH="${2:?}"; shift 2 ;;
+      -w|--wait)     WAIT_FOR_EXIT=1; shift ;;
+      -n|--no-wait)  WAIT_FOR_EXIT=0; shift ;;
+      --install)     INSTALL_DLLS+=("${2:?}"); shift 2 ;;
+      --proton)      USE_PROTON=1; shift ;;
+      --dry-run)     DRY_RUN=1; shift ;;
+      -v|--verbose)  VERBOSE=1; shift ;;
+      -h|--help)     usage; exit 0 ;;
+      -V|--version)  echo "${PROG} ${VERSION}"; exit 0 ;;
+      --)            shift; break ;;
+      -*)            die 1 "opzione sconosciuta: $1" ;;
+      *)             break ;;
+    esac
+  done
+
+  [[ $# -ge 1 ]] || { usage; exit 1; }
+  TARGET="$1"; shift
+  TARGET_ARGS=("$@")
+
+  case "${WINE_ARCH}" in
+    win32|win64) ;;
+    *) die 1 "--arch accetta solo win32 o win64" ;;
+  esac
+}
+
+# ---------------------------------------------------------------------------
+# Rilevamento delle capacita' GPU: su Intel HD Graphics Gen5 non esiste Vulkan,
+# quindi DXVK/VKD3D devono restare disattivati. La rilevazione e' a runtime
+# perche' la stessa immagine puo' girare su hardware piu' recente.
+# ---------------------------------------------------------------------------
+detect_vulkan() {
+  if have vulkaninfo && vulkaninfo --summary >/dev/null 2>&1; then
+    echo 1; return 0
+  fi
+  local lib
+  for lib in /usr/lib64/libvulkan.so.1 /usr/lib/libvulkan.so.1; do
+    [[ -e "${lib}" ]] || continue
+    if [[ -d /usr/share/vulkan/icd.d ]] && \
+       ls /usr/share/vulkan/icd.d/*.json >/dev/null 2>&1; then
+      # ICD dichiarato ma nessuna GPU Vulkan su Ironlake: verifica il vendor.
+      if grep -qsi 'intel_icd' /usr/share/vulkan/icd.d/*.json 2>/dev/null; then
+        # anv supporta solo Gen8+; Gen5 (device 0x0046) non e' coperto.
+        if lspci -nn 2>/dev/null | grep -qiE 'VGA.*(8086:004[26]|8086:0048)'; then
+          echo 0; return 0
+        fi
+      fi
+    fi
+  done
+  echo 0
+}
+
+detect_legacy_intel_gpu() {
+  # Ironlake (Gen5): 8086:0042 (desktop), 8086:0046 (mobile, il P6100),
+  # 8086:0048. Sandy Bridge (Gen6) = 8086:01xx: supportato ma senza Vulkan.
+  if have lspci && lspci -nn 2>/dev/null | grep -qiE 'VGA compatible controller.*8086:004[268]'; then
+    echo 1; return 0
+  fi
+  # Fallback: sysfs (lspci puo' mancare nelle immagini Slim).
+  local d vendor device
+  for d in /sys/bus/pci/devices/*; do
+    [[ -r "${d}/class" ]] || continue
+    grep -q '^0x030000' "${d}/class" 2>/dev/null || continue
+    vendor="$(cat "${d}/vendor" 2>/dev/null || echo)"
+    device="$(cat "${d}/device" 2>/dev/null || echo)"
+    if [[ "${vendor}" == "0x8086" && "${device}" =~ ^0x004[268]$ ]]; then
+      echo 1; return 0
+    fi
+  done
+  echo 0
+}
+
+# ---------------------------------------------------------------------------
+# Costruzione dell'ambiente Wine
+# ---------------------------------------------------------------------------
+build_env() {
+  local prefix="${PREFIX_ROOT}/${PREFIX_NAME}"
+  local vulkan legacy
+
+  vulkan="$(detect_vulkan)"
+  legacy="$(detect_legacy_intel_gpu)"
+
+  export WINEPREFIX="${prefix}"
+  export WINEARCH="${WINE_ARCH}"
+  export WINEDEBUG="${WINEDEBUG:--all+fixme}"
+  export WINEDLLOVERRIDES="mscoree=d;mshtml=d"
+  export WINEESYNC=1
+  export WINEFSYNC=1
+  export WINEFSYNC_FUTEX_REALTIME=0
+  export STAGING_SHARED_MEMORY=1
+  export STAGING_RT_PRIORITY=0
+
+  # --- traduzione Direct3D ---------------------------------------------------
+  if [[ "${vulkan}" == "1" ]]; then
+    export PROTON_USE_WINED3D=0
+    export DXVK_STATE_CACHE=1
+    export DXVK_STATE_CACHE_PATH="${prefix}/drive_c/users/${USER:-chronos}/dxvk"
+    export DXVK_LOG_LEVEL=warn
+    vlog "Vulkan disponibile: DXVK attivo"
+  else
+    # Ironlake/Gen5: nessun driver Vulkan. wined3d su OpenGL 2.1 e' l'unica via.
+    export PROTON_USE_WINED3D=1
+    export PROTON_USE_WINED3D11=1
+    export PROTON_NO_D3D10=0
+    export DXVK_NVAPIHACK=0
+    export mesa_glthread=false
+    export LIBGL_DRI3_DISABLE=1
+    export LIBGL_ALWAYS_SOFTWARE=0
+    export GALLIUM_DRIVER=crocus
+    vlog "Vulkan assente: wined3d (OpenGL 2.1 via crocus)"
+  fi
+
+  # --- limiti specifici per GPU di prima generazione --------------------------
+  if [[ "${legacy}" == "1" ]]; then
+    export wined3d_MaxShaderModelVS=3
+    export wined3d_MaxShaderModelGS=0
+    export wined3d_MaxShaderModelPS=3
+    export wined3d_use_glsl=1
+    export wined3d_StrictDrawingRect=1
+    export wined3d_OffscreenRenderingMode=fbo
+    export wined3d_Multisampling=disabled
+    export wined3d_CheckFloatCapability=0
+    # 64 MB di memoria video dichiarata: oltre questa soglia molti giochi
+    # Win32 caricano texture che Ironlake non puo' tenere e vanno in thrashing.
+    export wined3d_VideoMemorySize=64
+    vlog "Intel HD Graphics Gen5 rilevata: limiti wined3d applicati"
+  fi
+
+  # --- runtime Proton (opzionale) --------------------------------------------
+  if [[ ${USE_PROTON} -eq 1 ]]; then
+    local proton_root
+    for proton_root in /usr/share/proton /opt/proton "${HOME:-/home/chronos}/.local/share/Steam/steamapps/common"; do
+      if [[ -d "${proton_root}" ]]; then
+        local dist
+        dist="$(find "${proton_root}" -maxdepth 2 -name 'proton' -type f 2>/dev/null | head -n1 || true)"
+        if [[ -n "${dist}" ]]; then
+          export PROTON_PATH="$(dirname "${dist}")"
+          export WINE="${PROTON_PATH}/dist/bin/wine"
+          export WINELOADER="${WINE}"
+          export WINESERVER="${PROTON_PATH}/dist/bin/wineserver"
+          export PATH="${PROTON_PATH}/dist/bin:${PATH}"
+          vlog "runtime Proton selezionato: ${PROTON_PATH}"
+          break
+        fi
+      fi
+    done
+    [[ -n "${WINE:-}" ]] || vlog "Proton richiesto ma non trovato: uso il Wine di sistema"
+  fi
+
+  # --- locale / input ---------------------------------------------------------
+  export LANG="${LANG:-it_IT.UTF-8}"
+  export LC_ALL="${LC_ALL:-}"
+  export GDK_BACKEND=wayland
+  export QT_QPA_PLATFORM=wayland
+  export SDL_VIDEODRIVER="${SDL_VIDEODRIVER:-wayland,x11}"
+  export PULSE_LATENCY_MSEC=60
+}
+
+wine_binary() {
+  if [[ -n "${WINE:-}" && -x "${WINE}" ]]; then
+    echo "${WINE}"; return 0
+  fi
+  if have wine64 && [[ "${WINE_ARCH}" == "win64" ]]; then
+    echo "wine64"; return 0
+  fi
+  if have wine; then
+    echo "wine"; return 0
+  fi
+  die 3 "nessun binario wine/wine64 installato (USE=wine assente?)"
+}
+
+# ---------------------------------------------------------------------------
+# Inizializzazione del prefix
+# ---------------------------------------------------------------------------
+init_prefix() {
+  local prefix="${WINEPREFIX}"
+  if [[ -d "${prefix}/drive_c" ]]; then
+    vlog "prefix esistente: ${prefix}"
+    return 0
+  fi
+
+  mkdir -p "${prefix}" || die 7 "impossibile creare ${prefix}"
+  log "inizializzazione del prefix ${prefix} (arch=${WINE_ARCH}); primo avvio 30-90 s"
+
+  if [[ ${DRY_RUN} -eq 1 ]]; then
+    log "[dry-run] wineboot -u --prefix ${prefix}"
+    return 0
+  fi
+
+  # wineboot -u crea la struttura e registra i DLL builtin; -k chiude subito il
+  # wineserver di inizializzazione per non lasciare memoria occupata.
+  "$(wine_binary)" wineboot -u >/dev/null 2>&1 || die 7 "wineboot fallito per ${prefix}"
+  if have wineserver; then
+    WINEPREFIX="${prefix}" wineserver -w >/dev/null 2>&1 || true
+  fi
+
+  # Disattivazione dei componenti .NET/IE che su hardware legacy rallentano
+  # l'avvio e non servono per la quasi totalita' dei gestionali Win32.
+  if have winetricks; then
+    WINEPREFIX="${prefix}" winetricks -q sandbox nocrashdialog >/dev/null 2>&1 || \
+      vlog "winetricks non riuscito (non bloccante)"
+  fi
+
+  local dll
+  for dll in "${INSTALL_DLLS[@]}"; do
+    [[ -n "${dll}" ]] || continue
+    have winetricks || die 3 "winetricks richiesto per --install ${dll}"
+    log "installazione componente '${dll}' nel prefix"
+    WINEPREFIX="${prefix}" winetricks -q "${dll}" || die 1 "winetricks ${dll} fallito"
+  done
+
+  # Collegamento delle directory utente: Downloads/Documents restano fuori dal
+  # prefix cosi' i file restano accessibili dal file manager di Ash.
+  local udir="${prefix}/drive_c/users/${USER:-chronos}"
+  mkdir -p "${udir}" 2>/dev/null || true
+  local d
+  for d in Downloads Documents Desktop Music Pictures Videos; do
+    local real="/home/${USER:-chronos}/${d}"
+    [[ -d "${real}" ]] || continue
+    ln -sfn "${real}" "${udir}/${d}" 2>/dev/null || true
+  done
+
+  log "prefix ${prefix} pronto"
+}
+
+# ---------------------------------------------------------------------------
+# Esecuzione
+# ---------------------------------------------------------------------------
+to_wine_path() {
+  local p="$1" prefix="${WINEPREFIX}" rel
+  if [[ "${p}" == "${prefix}/drive_c/"* ]]; then
+    rel="${p#"${prefix}/drive_c/"}"
+    rel="${rel//\//\\}"
+    printf 'C:\\%s' "${rel}"
+    return 0
+  fi
+  printf 'Z:%s' "$(realpath -- "${p}" 2>/dev/null || printf '%s' "${p}")"
+}
+
+run_target() {
+  local bin wp
+  bin="$(wine_binary)"
+  wp="$(to_wine_path "${TARGET}")"
+
+  local cmd=()
+  case "${TARGET,,}" in
+    *.msi|*.msp|*.msm)
+      cmd=("${bin}" msiexec /i "${wp}")
+      ;;
+    *.bat|*.cmd)
+      cmd=("${bin}" cmd /c "${wp}")
+      ;;
+    *)
+      cmd=("${bin}" "${wp}")
+      ;;
+  esac
+  cmd+=("${TARGET_ARGS[@]}")
+
+  if [[ ${DRY_RUN} -eq 1 ]]; then
+    log "[dry-run] ambiente:"
+    local v
+    for v in WINEPREFIX WINEARCH WINEDEBUG WINEDLLOVERRIDES WINEESYNC WINEFSYNC \
+             PROTON_USE_WINED3D GALLIUM_DRIVER wined3d_VideoMemorySize \
+             wined3d_MaxShaderModelPS; do
+      printf '  %-26s = %s\n' "${v}" "${!v:-<non impostata>}"
+    done
+    log "[dry-run] comando: ${cmd[*]}"
+    return 0
+  fi
+
+  log "esecuzione: ${cmd[*]}"
+  local rc=0
+  if [[ ${WAIT_FOR_EXIT} -eq 1 ]]; then
+    "${cmd[@]}" || rc=$?
+    if (( rc > 128 )); then
+      local sig=$(( rc - 128 ))
+      if (( sig == 4 )); then
+        log "SIGILL: l'eseguibile usa istruzioni non supportate (SSE4.2/POPCNT/AVX)."
+        log "Su Intel Pentium P6100 il binario non puo' essere eseguito."
+        log "Verifica: objdump -d \"${TARGET}\" | grep -Ew 'crc32|popcnt|pcmpgtq|vpcmpeqq'"
+        return 10
+      fi
+      log "processo terminato dal segnale ${sig}"
+      return "${rc}"
+    fi
+    return "${rc}"
+  fi
+
+  "${cmd[@]}" >/dev/null 2>&1 &
+  log "avviato in background (PID $!)"
+  return 0
+}
+
+# ---------------------------------------------------------------------------
+# Delega a prismOS Slim (on-demand + kill alla chiusura)
+# ---------------------------------------------------------------------------
+maybe_delegate_slim() {
+  if [[ "${PRISMOS_ON_DEMAND:-0}" == "1" ]] && [[ -x /usr/bin/prismos-slim-launcher ]]; then
+    vlog "PRISMOS_ON_DEMAND=1: delega a /usr/bin/prismos-slim-launcher"
+    export PRISMOS_WINE_PREFIX="${PREFIX_NAME}"
+    exec /usr/bin/prismos-slim-launcher "${TARGET}" "${TARGET_ARGS[@]}"
+  fi
+}
+
+main() {
+  parse_args "$@"
+
+  [[ -e "${TARGET}" ]] || die 2 "file inesistente: ${TARGET}"
+  [[ -r "${TARGET}" ]] || die 2 "file non leggibile: ${TARGET}"
+  TARGET="$(realpath -- "${TARGET}" 2>/dev/null || printf '%s' "${TARGET}")"
+
+  maybe_delegate_slim
+  build_env
+  init_prefix
+
+  local rc=0
+  run_target || rc=$?
+
+  # Se il chiamante attende la fine del programma, si chiude anche il wineserver
+  # per non lasciare memoria occupata (comportamento atteso in prismOS Slim).
+  if [[ ${WAIT_FOR_EXIT} -eq 1 && "${PRISMOS_WINE_KEEP_SERVER:-0}" != "1" ]]; then
+    if have wineserver; then
+      vlog "chiusura di wineserver"
+      WINEPREFIX="${WINEPREFIX}" wineserver -k >/dev/null 2>&1 || true
+    fi
+  fi
+
+  return "${rc}"
+}
+
+main "$@"

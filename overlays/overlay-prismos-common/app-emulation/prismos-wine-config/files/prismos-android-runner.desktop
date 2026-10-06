@@ -1,0 +1,20 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Run with Waydroid (Android)
+Name[it]=Esegui con Waydroid (Android)
+GenericName=Android Compatibility Layer
+GenericName[it]=Livello di compatibilita' Android
+Comment=Install and run an Android .apk through Waydroid (LineageOS 16.0 x86 rebuilt without SSE4.2); replaces Google ARC/ARC++ which cannot run on this ISA
+Comment[it]=Installa ed esegue un .apk Android con Waydroid (LineageOS 16.0 x86 ricostruita senza SSE4.2); sostituisce ARC/ARC++ di Google, inutilizzabile su questa ISA
+Exec=/usr/bin/prismos-slim-launcher %f
+TryExec=/usr/bin/prismos-slim-launcher
+Icon=prismos-waydroid
+Terminal=false
+Categories=System;Emulator;
+MimeType=application/vnd.android.package-archive;
+Keywords=waydroid;android;apk;lineageos;prismos;
+StartupNotify=true
+NoDisplay=false
+X-PrismOS-OnDemand=true
+X-PrismOS-Subsystem=waydroid

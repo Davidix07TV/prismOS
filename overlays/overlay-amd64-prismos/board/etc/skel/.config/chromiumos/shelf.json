@@ -1,0 +1,34 @@
+{
+  "schema_version": "1.0.0",
+  "generated_by": "prismOS board skeleton (sovrascritto da scripts/build_iso.sh)",
+  "shelf": {
+    "alignment": "Bottom",
+    "autohide": "Always",
+    "centered": true,
+    "icon_size": 48,
+    "icon_spacing": 8,
+    "squircle_radius": 0.28,
+    "squircle_exponent": 5.0,
+    "launcher_button_position": "center",
+    "show_window_indicators": true,
+    "magnification_on_hover": false
+  },
+  "pinned_apps": [
+    {
+      "id": "google-drive",
+      "name": "Google Drive",
+      "type": "Web_App",
+      "launch_url": "https://drive.google.com/",
+      "icon": "/usr/share/icons/prismOS-Squircle/apps/scalable/google-drive.svg",
+      "order": 1
+    },
+    {
+      "id": "youtube",
+      "name": "YouTube",
+      "type": "Web_App",
+      "launch_url": "https://www.youtube.com/",
+      "icon": "/usr/share/icons/prismOS-Squircle/apps/scalable/youtube.svg",
+      "order": 2
+    }
+  ]
+}

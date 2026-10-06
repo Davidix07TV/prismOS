@@ -1,0 +1,9 @@
+# =============================================================================
+#  prismos-common :: profilo base :: parent
+# -----------------------------------------------------------------------------
+#  prismOS non reinventa il profilo ChromeOS: lo eredita e vi applica sopra
+#  il floor ISA SSE4.1 e i USE dei sottosistemi sostitutivi (Waydroid/Wine).
+#  `chromiumos` e `portage-stable` sono i repo_name dei tree di cros_sdk
+#  (src/overlays/chromiumos e src/third_party/portage-stable).
+# =============================================================================
+chromiumos:default/linux/amd64/10.0/chromeos

@@ -1,0 +1,73 @@
+# =============================================================================
+#  prismos-waydroid-container.service
+# -----------------------------------------------------------------------------
+#  Container LXC che ospita LineageOS 16.0 (Android 9) x86 ricostruita da
+#  prismOS con floor ISA SSE4.1 (nessuna istruzione SSE4.2/POPCNT).
+#
+#  Sostituisce la unita' upstream waydroid-container.service: la differenza
+#  sostanziale e' l'assenza di un [Install] trascinabile da multi-user.target
+#  in prismOS Slim, dove la unita' e' statica e viene avviata ESCLUSIVAMENTE da
+#  /usr/bin/prismos-slim-launcher all'apertura di un file .apk.
+#
+#  Nelle edizioni EDU/Home/Work la unita' e' abilitata e viene trascinata da
+#  prismos-subsystems.target (che a sua volta e' WantedBy=multi-user.target).
+# =============================================================================
+[Unit]
+Description=prismOS Waydroid container (LineageOS 16.0 x86, no-SSE4.2)
+Documentation=man:lxc-start(1)
+Documentation=https://github.com/Davidix07TV/prismOS/blob/main/docs/waydroid-integration.md
+After=network-online.target systemd-modules-load.service systemd-udevd.service
+Wants=network-online.target
+RequiresMountsFor=/var/lib/waydroid
+ConditionPathExists=/var/lib/waydroid/images/system.img
+ConditionPathExists=/var/lib/waydroid/images/vendor.img
+ConditionCapability=CAP_SYS_ADMIN
+StartLimitIntervalSec=180
+StartLimitBurst=3
+
+[Service]
+Type=simple
+ExecStartPre=/usr/libexec/prismos/prismos-waydroid-prepare
+ExecStart=/usr/bin/lxc-start --rcfile=/var/lib/waydroid/lxc/waydroid/config \
+          --name=waydroid --logfile=/var/log/prismos/waydroid-lxc.log \
+          --logpriority=INFO --nodaemon
+ExecReload=/bin/kill -HUP $MAINPID
+ExecStop=/usr/bin/lxc-stop --name=waydroid --rcfile=/var/lib/waydroid/lxc/waydroid/config --kill
+ExecStopPost=-/usr/libexec/prismos/prismos-waydroid-cleanup
+
+# cgroup v2: LXC deve poter creare il sottoalbero del container.
+Delegate=yes
+Slice=prismos-subsystems.slice
+
+Restart=no
+RestartPreventExitStatus=0 1 2
+TimeoutStartSec=120
+TimeoutStopSec=15
+KillMode=mixed
+KillSignal=SIGTERM
+FinalKillSignal=SIGKILL
+SendSIGKILL=yes
+OOMPolicy=kill
+
+# Tetto di memoria: oltre questa soglia systemd uccide il container invece di
+# mandare in OOM l'intera sessione Ash.
+MemoryHigh=768M
+MemoryMax=1024M
+MemorySwapMax=256M
+CPUWeight=90
+IOWeight=80
+TasksMax=1024
+
+# Hardening: il container ha bisogno di privilegi reali, quindi si limita solo
+# cio' che non serve (nessun accesso al kernel kexec, nessun mount di /proc/sys).
+NoNewPrivileges=no
+ProtectKernelLogs=yes
+ProtectClock=yes
+RestrictRealtime=yes
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=prismos-waydroid
+
+[Install]
+WantedBy=prismos-subsystems.target

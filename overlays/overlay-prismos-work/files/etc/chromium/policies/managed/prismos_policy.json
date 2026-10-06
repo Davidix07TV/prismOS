@@ -1,0 +1,118 @@
+{
+  "CloudPolicyOverridesPlatformPolicy": true,
+
+  "ShelfAlignment": "Bottom",
+  "ShelfAutoHideBehavior": "Always",
+
+  "ArcEnabled": false,
+  "UnaffiliatedArcAllowed": false,
+  "UnaffiliatedDeviceArcAllowed": false,
+  "VirtualMachinesAllowed": true,
+  "CrostiniAllowed": true,
+  "DeviceUnaffiliatedCrostiniAllowed": true,
+
+  "BrowserGuestModeEnabled": false,
+  "DeviceGuestModeEnabled": false,
+  "DeviceGuestModeBlocked": true,
+  "DeviceRebootOnUserSignout": "Ignore",
+  "IncognitoModeAvailability": 0,
+  "DeveloperToolsAvailability": 1,
+  "ScreenCaptureAllowed": true,
+  "AllowFileSelectionDialogs": true,
+  "CommandLineFlagSecurityWarningsEnabled": false,
+  "NativeMessagingUserLevelHosts": true,
+  "RemoteAccessHostAllowRelayedConnection": false,
+  "RemoteAccessHostRequireTwoFactor": true,
+  "DeviceAllowBluetooth": true,
+  "EasyUnlockAllowed": true,
+
+  "URLBlocklist": [
+    "*://*.hide.me/*",
+    "*://*.protonvpn.com/*",
+    "*://*.nordvpn.com/*",
+    "*://*.windscribe.com/*",
+    "*://*.hotspotshield.com/*",
+    "*://*.kproxy.com/*",
+    "*://*.croxyproxy.com/*",
+    "*://*.ultrasurf.us/*",
+    "*://*.torproject.org/*",
+    "*://*.zenmate.com/*",
+    "*://*.thepiratebay.org/*",
+    "*://*.1337x.to/*",
+    "*://*.rarbg.to/*",
+    "*://*.yts.mx/*",
+    "*://*.eztv.re/*"
+  ],
+  "URLAllowlist": [],
+
+  "ExtensionInstallBlocklist": [],
+  "ExtensionInstallAllowlist": [],
+  "ExtensionInstallForcelist": [
+    "cjpalhdlnbpafiamejdnhcphjbkeiagm;https://clients2.google.com/service/update2/crx"
+  ],
+  "BlockExternalExtensions": false,
+
+  "WebAppInstallForceList": [
+    { "url": "https://www.microsoft365.com/", "create_url": "https://www.microsoft365.com/" },
+    { "url": "https://outlook.office.com/mail/", "create_url": "https://outlook.office.com/" },
+    { "url": "https://app.zoom.us/wc/home", "create_url": "https://app.zoom.us/" },
+    { "url": "https://app.slack.com/", "create_url": "https://app.slack.com/" },
+    { "url": "https://vscode.dev/", "create_url": "https://vscode.dev/" },
+    { "url": "https://drive.google.com/", "create_url": "https://drive.google.com/drive/" }
+  ],
+  "PinnedLauncherApps": [
+    "https://www.microsoft365.com/",
+    "https://outlook.office.com/mail/",
+    "https://app.zoom.us/wc/home",
+    "https://app.slack.com/",
+    "https://vscode.dev/",
+    "https://drive.google.com/"
+  ],
+
+  "ManagedBookmarks": [
+    { "name": "Microsoft 365", "url": "https://www.microsoft365.com/" },
+    { "name": "Outlook", "url": "https://outlook.office.com/mail/" },
+    { "name": "OneDrive", "url": "https://www.microsoft365.com/launch/onedrive" },
+    { "name": "Teams Web", "url": "https://teams.microsoft.com/" },
+    { "name": "Zoom", "url": "https://app.zoom.us/wc/home" },
+    { "name": "Slack", "url": "https://app.slack.com/" },
+    {
+      "toplevel_name": "Strumenti di sviluppo",
+      "children": [
+        { "name": "VS Code Web", "url": "https://vscode.dev/" },
+        { "name": "GitHub", "url": "https://github.com/" }
+      ]
+    }
+  ],
+
+  "HomepageLocation": "https://www.microsoft365.com/",
+  "HomepageIsNewTabPage": false,
+  "ShowHomeButton": true,
+  "RestoreOnStartup": 1,
+  "DefaultBrowserSettingEnabled": false,
+
+  "SafeBrowsingProtectionLevel": 2,
+  "SafeBrowsingExtendedReportingEnabled": true,
+  "PasswordManagerEnabled": true,
+  "AutofillAddressEnabled": true,
+  "AutofillCreditCardEnabled": false,
+  "TranslateEnabled": true,
+  "MetricsReportingEnabled": true,
+  "DeviceMetricsReportingEnabled": true,
+  "ReportUploadFrequency": 10800,
+  "ReportDeviceLocationEnabled": false,
+  "ReportDeviceBootModeEnabled": true,
+  "ReportDeviceNetworkStatusEnabled": true,
+  "ReportDeviceUsersEnabled": true,
+  "ReportDeviceVersionInfoEnabled": true,
+
+  "DownloadRestrictions": 1,
+  "DefaultDownloadDirectory": "/home/chronos/user/Downloads",
+  "DownloadDirectory": "/home/chronos/user/Downloads",
+  "PromptForDownloadLocation": false,
+  "PrintingAllowed": true,
+
+  "SystemTimezone": "Europe/Rome",
+  "SystemTimezoneAutomaticDetection": 1,
+  "SystemUse24HourClock": true
+}

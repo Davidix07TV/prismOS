@@ -1,0 +1,4 @@
+# Profilo genitore dell'edizione prismOS edu (in maiuscolo: EDU).
+# Eredita il floor ISA e i USE comuni da prismos-common:base, che a sua volta
+# eredita da chromiumos (vedi overlay-prismos-common/profiles/base/parent).
+prismos-common:base

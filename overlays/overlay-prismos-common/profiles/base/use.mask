@@ -1,0 +1,22 @@
+# =============================================================================
+# prismOS - overlay-prismos-common - profiles/base/use.mask
+# -----------------------------------------------------------------------------
+# MASCHERATURA HARD dei sottosistemi proprietari Android di Google/FydeOS.
+# ARC/ARC++ e ARCVM richiedono istruzioni SSE4.2 + POPCNT per il container
+# Android (art/dalvik JIT e libhoudini): su CPU Intel Arrandale "Pentium"
+# (es. P6100, SSE4.1 only) il container entra in un loop infinito di SIGILL
+# durante il boot di "android-sh". La sostituzione ufficiale in prismOS e'
+# Waydroid con immagine LineageOS 16.0 (Android 9) x86 rebuild no-SSE4.2.
+#
+# Questi flag NON devono mai essere riattivati: sono mascherati a livello di
+# profilo base, quindi `emerge` fallisce con "USE=arc masked by profile".
+# =============================================================================
+arc
+arc-plus
+arcplusplus
+arc-container
+arcvm
+arc-kernel-features
+houdini
+libhoudini
+nacl

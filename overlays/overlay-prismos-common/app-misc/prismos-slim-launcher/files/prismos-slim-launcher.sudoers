@@ -1,0 +1,33 @@
+# =============================================================================
+#  /etc/sudoers.d/prismos-slim-launcher          (0440 root:root)
+# -----------------------------------------------------------------------------
+#  prismOS Slim: l'utente di sessione (chronos, uid 1000) deve poter accendere
+#  e spegnere SOLO le unita' dei sottosistemi on-demand. Nessun altro comando,
+#  nessun argomento libero: i nomi delle unita' sono elencati esplicitamente e
+#  sudo rifiuta qualsiasi unita' diversa (wildcard limitata al suffisso @<uid>).
+#
+#  `systemctl` viene invocato con percorso assoluto per impedire il dirottamento
+#  tramite PATH. NOEXEC non e' applicabile: le unita' sono eseguite da systemd.
+# =============================================================================
+
+Cmnd_Alias PRISMOS_SYSTEMCTL_START = \
+    /usr/bin/systemctl start prismos-waydroid-container.service, \
+    /usr/bin/systemctl start prismos-waydroid-session@*, \
+    /usr/bin/systemctl start prismos-wine-session@*, \
+    /usr/bin/systemctl stop prismos-waydroid-container.service, \
+    /usr/bin/systemctl stop prismos-waydroid-session@*, \
+    /usr/bin/systemctl stop prismos-wine-session@*, \
+    /usr/bin/systemctl kill prismos-waydroid-container.service, \
+    /usr/bin/systemctl kill prismos-waydroid-session@*, \
+    /usr/bin/systemctl kill prismos-wine-session@*, \
+    /usr/bin/systemctl restart prismos-waydroid-container.service, \
+    /usr/bin/systemctl restart prismos-waydroid-session@*, \
+    /usr/bin/systemctl restart prismos-wine-session@*
+
+Defaults!PRISMOS_SYSTEMCTL_START !requiretty, !logfile, env_reset, \
+         secure_path="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+chronos ALL=(root) NOPASSWD: PRISMOS_SYSTEMCTL_START
+
+# Utenti locali aggiuntivi (profili di test, account amministratore scolastico).
+%wheel ALL=(root) NOPASSWD: PRISMOS_SYSTEMCTL_START

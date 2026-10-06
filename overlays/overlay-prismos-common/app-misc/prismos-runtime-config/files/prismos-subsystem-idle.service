@@ -1,0 +1,18 @@
+# =============================================================================
+#  prismos-subsystem-idle.service
+# -----------------------------------------------------------------------------
+#  Reaper di idle per EDU/Home/Work: se un sottosistema resta attivo senza
+#  attivita' per PRISMOS_SUBSYSTEM_IDLE_TIMEOUT secondi viene fermato, per
+#  restituire RAM alla sessione. In prismOS Slim la unita' e' mascherata: il
+#  teardown li' e' immediato e gestito da prismos-slim-launcher.
+# =============================================================================
+[Unit]
+Description=prismOS idle reaper for compatibility subsystems
+After=prismos-subsystems.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/prismos/prismos-subsystem-idle-check
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=prismos-idle

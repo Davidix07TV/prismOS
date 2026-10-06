@@ -1,0 +1,47 @@
+# =============================================================================
+#  Board amd64-prismos :: profiles/base/make.defaults
+# -----------------------------------------------------------------------------
+#  Valori specifici del BOARD (non dell'edizione). L'edizione aggiunge i propri
+#  USE tramite overlay-prismos-<edition>/profiles/base/make.defaults, che viene
+#  appeso a profiles/base/parent da scripts/build_iso.sh.
+# =============================================================================
+
+ARCH="amd64"
+ACCEPT_KEYWORDS="amd64 ~amd64"
+CHOST="x86_64-cros-linux-gnu"
+PROFILE_ONLY_VARIABLES="ARCH ACCEPT_KEYWORDS CHOST"
+
+BOARD="amd64-prismos"
+BOARD_USE="${USE}"
+PROFILE_ONLY_VARIABLES="${PROFILE_ONLY_VARIABLES} BOARD BOARD_USE"
+
+# ChromeOS legacy: niente ARC, niente VM Android di Google.
+USE="${USE} -arc -arc-plus -arcplusplus -arcvm chromeos-base chromeos_shell \
+crosvm cryptohome exo ozone wayland -X -gtk -gnome -kde"
+
+# GPU e input del target (Intel HD Graphics Gen5, tastiera/touchpad PS2 e USB).
+VIDEO_CARDS="intel crocus i965"
+INPUT_DEVICES="libinput evdev synaptics wacom"
+PROFILE_ONLY_VARIABLES="${PROFILE_ONLY_VARIABLES} VIDEO_CARDS INPUT_DEVICES"
+
+# Il floor ISA dichiarato dal board. Usato dai controlli di build.
+CPU_FLAGS_X86="mmx sse sse2 sse3 ssse3 sse4_1"
+PROFILE_ONLY_VARIABLES="${PROFILE_ONLY_VARIABLES} CPU_FLAGS_X86"
+
+# Set di pacchetti del board: aggiunte al @system del profilo comune.
+SYSTEM_PACKAGES="${SYSTEM_PACKAGES} \
+chromeos-base/chromeos-chrome \
+chromeos-base/chromeos-init-scripts \
+chromeos-base/chromeos-login \
+chromeos-base/session_manager \
+chromeos-base/shill \
+chromeos-base/crosvm \
+chromeos-base/minijail \
+chromeos-base/vboot_reference \
+sys-kernel/chromeos-kernel-6_1 \
+app-misc/prismos-dock \
+app-misc/prismos-accelerator-daemon \
+app-misc/prismos-runtime-config \
+app-misc/prismos-slim-launcher \
+app-emulation/prismos-waydroid-config \
+app-emulation/prismos-wine-config"

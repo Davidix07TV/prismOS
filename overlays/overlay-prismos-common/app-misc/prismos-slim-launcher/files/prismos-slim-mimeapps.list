@@ -1,0 +1,20 @@
+# =============================================================================
+#  /etc/xdg/mimeapps.list  (prismOS)
+#  Associazioni predefinite fra tipi MIME e gestori prismOS. Il file manager di
+#  Ash/Aura le utilizza per la voce "Apri con" e per il doppio clic su .apk,
+#  .exe e .msi. Le associazioni sono additive: le preferenze dell'utente in
+#  ~/.config/mimeapps.list hanno priorita'.
+# =============================================================================
+[Default Applications]
+application/vnd.android.package-archive=prismos-slim-launcher.desktop
+application/x-ms-dos-executable=prismos-slim-launcher.desktop
+application/x-msi=prismos-slim-launcher.desktop
+application/x-msdownload=prismos-slim-launcher.desktop
+application/x-dosexec=prismos-slim-launcher.desktop
+
+[Added Associations]
+application/vnd.android.package-archive=prismos-slim-launcher.desktop;
+application/x-ms-dos-executable=prismos-slim-launcher.desktop;
+application/x-msi=prismos-slim-launcher.desktop;
+application/x-msdownload=prismos-slim-launcher.desktop;
+application/x-dosexec=prismos-slim-launcher.desktop;

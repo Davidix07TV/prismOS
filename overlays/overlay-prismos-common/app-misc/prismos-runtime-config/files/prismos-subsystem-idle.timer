@@ -1,0 +1,12 @@
+[Unit]
+Description=Periodic idle check for prismOS compatibility subsystems
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=60s
+AccuracySec=15s
+Unit=prismos-subsystem-idle.service
+Persistent=false
+
+[Install]
+WantedBy=timers.target

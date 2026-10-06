@@ -1,0 +1,1197 @@
+#!/usr/bin/env bash
+# =============================================================================
+#  prismos-slim-launcher  -  prismOS Slim on-demand subsystem supervisor
+# -----------------------------------------------------------------------------
+#  Percorso di installazione : /usr/bin/prismos-slim-launcher   (0755 root:root)
+#  Pacchetto                 : app-misc/prismos-slim-launcher
+#  Configurazione            : /etc/prismos/slim-launcher.conf
+#  Log                       : journal (ident=prismos-slim-launcher) +
+#                              /var/log/prismos/slim-launcher.log
+#
+#  SCOPO
+#  -----
+#  Nell'edizione prismOS Slim (<2 GB di RAM) i sottosistemi Waydroid (Android 9
+#  LineageOS x86 no-SSE4.2) e Wine (Win32/Win64 + Proton) sono INSTALLATI ma
+#  restano COMPLETAMENTE SPENTI al boot: nessuna unita' systemd li trascina in
+#  multi-user.target e il container LXC non e' avviato. Questo helper e'
+#  l'unico punto di ingresso che li risveglia.
+#
+#  FLUSSO (file .apk)
+#  ------------------
+#    1. il file manager (Ash Files) apre l'helper tramite il MIME handler
+#       application/vnd.android.package-archive
+#    2. l'helper verifica la firma del file (magic ZIP + AndroidManifest.xml)
+#    3. systemctl start prismos-waydroid-container.service   (~4-7 s su P6100)
+#    4. systemctl start prismos-waydroid-session@<uid>.service
+#    5. waydroid app install <apk>  ->  diff di `waydroid app list` per
+#       ricavare il package name appena installato
+#    6. waydroid app launch <package>
+#    7. WATCHDOG: poll su /proc per il processo Android <package>
+#    8. alla chiusura dell'app (o al timeout di idle) -> teardown:
+#         waydroid session stop
+#         systemctl stop prismos-waydroid-session@<uid>.service
+#         systemctl stop prismos-waydroid-container.service
+#         umount dei bind mount residui, kill -9 dei processi orfani,
+#         echo 3 > /proc/sys/vm/drop_caches (solo se PRISMOS_SLIM_DROP_CACHES=1)
+#       La RAM torna istantaneamente disponibile.
+#
+#  FLUSSO (file .exe / .msi)
+#  -------------------------
+#    1-2. verifica magic MZ (PE) oppure D0CF11E0A1B11AE1 (OLE2/CFB = MSI)
+#    3.   systemctl start prismos-wine-session@<uid>.service
+#         (la unita' inizializza il prefix on-demand e avvia wineserver)
+#    4.   wine|wine64 <eseguibile> nel prefix dedicato
+#    5.   wait sul PID
+#    6.   wineserver -k ; systemctl stop prismos-wine-session@<uid>.service
+#
+#  CODICI DI USCITA
+#  ----------------
+#    0   applicazione terminata normalmente, sottosistema smontato
+#    1   errore generico / argomenti non validi
+#    2   file non riconosciuto (ne' APK ne' PE ne' MSI)
+#    3   sottosistema non installato (USE=waydroid / USE=wine assenti)
+#    4   permesso negato nell'avvio della unita' systemd
+#    5   timeout di avvio del container
+#    6   sottosistema occupato da un'altra istanza (MAX_INSTANCES raggiunto)
+#   10   applicazione terminata con segnale (SIGILL/SIGSEGV): tipicamente un
+#        binario che richiede SSE4.2 -> vedere scripts/verify_legacy_cpu.sh
+#   130 interrotto dall'utente (SIGINT)
+# =============================================================================
+
+set -Eeuo pipefail
+shopt -s inherit_errexit nullglob
+
+readonly PROG_NAME="prismos-slim-launcher"
+readonly PROG_VERSION="1.0.0"
+readonly PROG_PID=$$
+readonly RUN_DIR="/run/prismos"
+readonly LOCK_DIR="${RUN_DIR}/slim-launcher"
+readonly LOG_DIR="/var/log/prismos"
+readonly LOG_FILE="${LOG_DIR}/slim-launcher.log"
+readonly CONF_FILE="/etc/prismos/slim-launcher.conf"
+readonly JOURNAL_IDENT="prismos-slim-launcher"
+
+# --- unita' systemd on-demand -------------------------------------------------
+readonly UNIT_WAYDROID_CONTAINER="prismos-waydroid-container.service"
+readonly UNIT_WAYDROID_SESSION_TMPL="prismos-waydroid-session@%u.service"
+readonly UNIT_WINE_SESSION_TMPL="prismos-wine-session@%u.service"
+
+# --- default (sovrascrivibili da ${CONF_FILE}) --------------------------------
+PRISMOS_SLIM_WAYDROID_ENABLED=1
+PRISMOS_SLIM_WINE_ENABLED=1
+PRISMOS_SLIM_IDLE_TIMEOUT=120
+PRISMOS_SLIM_BOOT_TIMEOUT=90
+PRISMOS_SLIM_POLL_INTERVAL=2
+PRISMOS_SLIM_MAX_INSTANCES=1
+PRISMOS_SLIM_TEARDOWN_GRACE_SEC=3
+PRISMOS_SLIM_DROP_CACHES=0
+PRISMOS_SLIM_WINE_PREFIX_ROOT="/home/chronos/user/WineBottles"
+PRISMOS_SLIM_WINE_DEFAULT_PREFIX="Slim"
+PRISMOS_SLIM_WAYDROID_IMAGE_DIR="/var/lib/waydroid/images"
+PRISMOS_SLIM_LOG_LEVEL="info"
+PRISMOS_SLIM_USE_PKEXEC=1
+PRISMOS_SLIM_ALLOW_INSTALL=1
+PRISMOS_SLIM_VERIFY_ISA=1
+
+# --- stato runtime ------------------------------------------------------------
+ACTIVE_SUBSYSTEM=""          # "waydroid" | "wine" | ""
+ACTIVE_UNIT=""               # unita' avviata da questa istanza (da fermare)
+ACTIVE_CONTAINER_UNIT=""     # unita' container avviata (da fermare)
+CHILD_PID=0                  # PID dell'applicazione ospite
+WATCHDOG_PID=0
+LOCK_FD=""
+CLEANUP_DONE=0
+START_TS=0
+
+# =============================================================================
+# LOGGING
+# =============================================================================
+_log_level_value() {
+  case "${1:-info}" in
+    debug) echo 10 ;;
+    info)  echo 20 ;;
+    warn)  echo 30 ;;
+    error) echo 40 ;;
+    *)     echo 20 ;;
+  esac
+}
+
+_log_emit() {
+  local priority="$1"; shift
+  local ts msg
+  ts="$(date '+%Y-%m-%dT%H:%M:%S%z')"
+  msg="[${PROG_NAME}][${PROG_PID}][${priority}] $*"
+
+  if [[ -t 2 ]]; then
+    local color="" reset=""
+    case "${priority}" in
+      debug) color=$'\033[0;90m' ;;
+      info)  color=$'\033[0;36m' ;;
+      warn)  color=$'\033[0;33m' ;;
+      error) color=$'\033[0;31m' ;;
+    esac
+    reset=$'\033[0m'
+    printf '%s%s%s\n' "${color}" "${msg}" "${reset}" >&2
+  fi
+
+  if command -v logger >/dev/null 2>&1; then
+    logger -t "${JOURNAL_IDENT}" -p "user.${priority}" -- "${msg}" 2>/dev/null || true
+  fi
+
+  if [[ -w "${LOG_DIR}" ]] || [[ ${EUID} -eq 0 ]]; then
+    mkdir -p "${LOG_DIR}" 2>/dev/null || true
+    printf '%s %s\n' "${ts}" "${msg}" >> "${LOG_FILE}" 2>/dev/null || true
+  fi
+}
+
+log_debug() { [[ $(_log_level_value "${PRISMOS_SLIM_LOG_LEVEL}") -le 10 ]] && _log_emit debug "$@" || true; }
+log_info()  { [[ $(_log_level_value "${PRISMOS_SLIM_LOG_LEVEL}") -le 20 ]] && _log_emit info  "$@" || true; }
+log_warn()  { _log_emit warn  "$@"; }
+log_error() { _log_emit error "$@"; }
+
+die() {
+  local code="${1:-1}"; shift
+  log_error "$*"
+  exit "${code}"
+}
+
+# =============================================================================
+# UTILITA' DI SISTEMA
+# =============================================================================
+have() { command -v "$1" >/dev/null 2>&1; }
+
+# Esegue systemctl con i privilegi necessari.
+# In ordine: root diretto -> pkexec -> sudo -n (sudoers ristretto fornito dal
+# pacchetto in /etc/sudoers.d/prismos-slim-launcher).
+systemd_running() {
+  [[ -d /run/systemd/system ]] && [[ -x /usr/bin/systemctl || -x /bin/systemctl ]]
+}
+
+priv_systemctl() {
+  local action="$1"; shift
+  local unit="$1"; shift || true
+
+  if ! systemd_running; then
+    log_error "systemd non e' PID 1: il controllo on-demand dei sottosistemi"
+    log_error "non e' possibile. Usare l'immagine prismOS su hardware reale"
+    log_error "oppure avviare manualmente 'waydroid session start' / 'wineserver'."
+    return 5
+  fi
+
+  case "${action}" in
+    start|stop|restart|is-active|status|show|kill|daemon-reload) ;;
+    *) die 1 "azione systemctl non ammessa: ${action}" ;;
+  esac
+
+  if [[ ${EUID} -eq 0 ]]; then
+    systemctl "${action}" "${unit}" "$@"
+  elif [[ ${PRISMOS_SLIM_USE_PKEXEC} -eq 1 ]] && have pkexec; then
+    pkexec --disable-internal-agent /usr/bin/systemctl "${action}" "${unit}" "$@"
+  elif have sudo; then
+    sudo -n /usr/bin/systemctl "${action}" "${unit}" "$@"
+  else
+    return 4
+  fi
+}
+
+# Versione "soft": non propaga l'errore di permesso, ritorna 4.
+try_systemctl() {
+  local rc=0
+  priv_systemctl "$@" || rc=$?
+  return "${rc}"
+}
+
+unit_is_active() {
+  local unit="$1"
+  local state=""
+  state="$(systemctl is-active "${unit}" 2>/dev/null || true)"
+  [[ "${state}" == "active" || "${state}" == "activating" || "${state}" == "reloading" ]]
+}
+
+unit_exists() {
+  local unit="$1"
+  local state=""
+  state="$(systemctl list-unit-files "${unit}" --no-legend 2>/dev/null | awk '{print $2}' | head -n1 || true)"
+  [[ -n "${state}" ]]
+}
+
+human_mb() {
+  local kb="${1:-0}"
+  awk -v k="${kb}" 'BEGIN { printf "%.1f MiB", k/1024 }'
+}
+
+mem_available_kb() {
+  awk '/^MemAvailable:/ { print $2; exit }' /proc/meminfo 2>/dev/null || echo 0
+}
+
+mem_total_kb() {
+  awk '/^MemTotal:/ { print $2; exit }' /proc/meminfo 2>/dev/null || echo 0
+}
+
+# =============================================================================
+# CONFIGURAZIONE
+# =============================================================================
+load_config() {
+  if [[ ! -f "${CONF_FILE}" ]]; then
+    log_warn "file di configurazione assente (${CONF_FILE}), uso i default integrati"
+    return 0
+  fi
+
+  # Il file e' di proprieta' di root: se fosse scrivibile da altri chiunque
+  # potrebbe iniettare codice eseguito da questo helper.
+  local owner mode
+  owner="$(stat -c '%u' "${CONF_FILE}" 2>/dev/null || echo 0)"
+  mode="$(stat -c '%a' "${CONF_FILE}" 2>/dev/null || echo 644)"
+  # Il file viene sorgiato: se non e' di root o se e' scrivibile da gruppo/altri
+  # chiunque potrebbe iniettare codice eseguito da questo helper.
+  if [[ "${owner}" != "0" || "${mode: -1}" != "0" || "${mode: -2:1}" != "0" && "${mode: -2:1}" != "4" ]]; then
+    log_warn "permessi insicuri su ${CONF_FILE} (uid=${owner} mode=${mode}): configurazione ignorata"
+    return 0
+  fi
+
+  # shellcheck disable=SC1090
+  source "${CONF_FILE}"
+
+  # Normalizzazione e sanity check dei valori numerici.
+  local var
+  for var in PRISMOS_SLIM_IDLE_TIMEOUT PRISMOS_SLIM_BOOT_TIMEOUT \
+             PRISMOS_SLIM_POLL_INTERVAL PRISMOS_SLIM_MAX_INSTANCES \
+             PRISMOS_SLIM_TEARDOWN_GRACE_SEC; do
+    if ! [[ "${!var}" =~ ^[0-9]+$ ]]; then
+      log_warn "valore non numerico per ${var}: ripristinato il default"
+      case "${var}" in
+        PRISMOS_SLIM_IDLE_TIMEOUT)        eval "${var}=120" ;;
+        PRISMOS_SLIM_BOOT_TIMEOUT)        eval "${var}=90" ;;
+        PRISMOS_SLIM_POLL_INTERVAL)       eval "${var}=2" ;;
+        PRISMOS_SLIM_MAX_INSTANCES)       eval "${var}=1" ;;
+        PRISMOS_SLIM_TEARDOWN_GRACE_SEC)  eval "${var}=3" ;;
+      esac
+    fi
+  done
+  [[ "${PRISMOS_SLIM_POLL_INTERVAL}" -ge 1 ]] || PRISMOS_SLIM_POLL_INTERVAL=1
+  [[ "${PRISMOS_SLIM_MAX_INSTANCES}" -ge 1 ]] || PRISMOS_SLIM_MAX_INSTANCES=1
+  log_debug "configurazione caricata da ${CONF_FILE}"
+}
+
+# =============================================================================
+# LOCK / SINGLE INSTANCE
+# =============================================================================
+acquire_lock() {
+  local subsystem="$1"
+  local lock_file="${LOCK_DIR}/${subsystem}.lock"
+  mkdir -p "${LOCK_DIR}" 2>/dev/null || true
+  chmod 1777 "${LOCK_DIR}" 2>/dev/null || true
+
+  exec {LOCK_FD}>"${lock_file}" || die 1 "impossibile aprire il lock ${lock_file}"
+
+  if ! flock -n "${LOCK_FD}"; then
+    local holder=""
+    holder="$(cat "${lock_file}" 2>/dev/null || echo '?')"
+    local running=0
+    if [[ "${holder}" =~ ^[0-9]+$ ]] && kill -0 "${holder}" 2>/dev/null; then
+      running=1
+    fi
+    if [[ ${PRISMOS_SLIM_MAX_INSTANCES} -eq 1 && ${running} -eq 1 ]]; then
+      log_warn "sottosistema ${subsystem} gia' in uso dal PID ${holder}"
+      return 6
+    fi
+    log_info "attesa del lock su ${subsystem} (holder PID ${holder})..."
+    flock -w "${PRISMOS_SLIM_BOOT_TIMEOUT}" "${LOCK_FD}" || return 6
+  fi
+
+  printf '%s\n' "${PROG_PID}" >&"${LOCK_FD}"
+  log_debug "lock acquisito su ${subsystem} (fd=${LOCK_FD})"
+  return 0
+}
+
+release_lock() {
+  if [[ -n "${LOCK_FD}" ]]; then
+    flock -u "${LOCK_FD}" 2>/dev/null || true
+    eval "exec ${LOCK_FD}>&-" 2>/dev/null || true
+    LOCK_FD=""
+  fi
+}
+
+# =============================================================================
+# RICONOSCIMENTO DEL FILE
+# =============================================================================
+# Ritorna su stdout: apk | exe32 | exe64 | msi | unknown
+detect_file_kind() {
+  local path="$1"
+  local magic=""
+
+  [[ -f "${path}" ]] || { echo "unknown"; return 0; }
+
+  # Lettura dei primi 8 byte in esadecimale (evita dipendenze da `file`).
+  magic="$(od -An -tx1 -N8 "${path}" 2>/dev/null | tr -d ' \n' || true)"
+
+  case "${magic}" in
+    504b0304*|504b0506*|504b0708*)
+      # ZIP: potrebbe essere un APK oppure un .exe autoestraente. Un APK e'
+      # uno ZIP che contiene AndroidManifest.xml alla radice.
+      if have unzip && unzip -l "${path}" 2>/dev/null | grep -q 'AndroidManifest.xml'; then
+        echo "apk"; return 0
+      fi
+      if have python3 && python3 - "${path}" <<'PY' 2>/dev/null
+import sys, zipfile
+try:
+    with zipfile.ZipFile(sys.argv[1]) as z:
+        sys.exit(0 if "AndroidManifest.xml" in z.namelist() else 1)
+except Exception:
+    sys.exit(1)
+PY
+      then
+        echo "apk"; return 0
+      fi
+      echo "unknown"; return 0
+      ;;
+    4d5a*)
+      # "MZ": immagine PE. Il campo Machine si legge dal COFF header.
+      local arch=""
+      arch="$(pe_machine "${path}")"
+      case "${arch}" in
+        0x14c|i386)   echo "exe32" ;;
+        0x8664|x64)   echo "exe64" ;;
+        *)            echo "exe32" ;;   # default conservativo: wow64 lo gestisce
+      esac
+      return 0
+      ;;
+    d0cf11e0a1b11ae1)
+      # OLE2 Compound File Binary: installer MSI (o vecchio .doc/.xls).
+      echo "msi"; return 0
+      ;;
+    7f454c46*)
+      # ELF: non e' un eseguibile Windows.
+      echo "unknown"; return 0
+      ;;
+    *)
+      echo "unknown"; return 0
+      ;;
+  esac
+}
+
+# Estrae il campo "Machine" del COFF header di un PE.
+pe_machine() {
+  local path="$1"
+  local e_lfanew machine=""
+
+  if have python3; then
+    machine="$(python3 - "${path}" <<'PY' 2>/dev/null || true
+import struct, sys
+try:
+    with open(sys.argv[1], "rb") as fh:
+        data = fh.read(4096)
+    if data[:2] != b"MZ":
+        sys.exit(0)
+    pe_off = struct.unpack_from("<I", data, 0x3C)[0]
+    if data[pe_off:pe_off + 4] != b"PE\x00\x00":
+        sys.exit(0)
+    machine = struct.unpack_from("<H", data, pe_off + 4)[0]
+    print("0x%04x" % machine)
+except Exception:
+    pass
+PY
+)"
+  fi
+
+  if [[ -z "${machine}" ]]; then
+    # Fallback puro bash/od: e_lfanew a 0x3C, Machine a pe_off+4.
+    e_lfanew="$(od -An -tu4 -j60 -N4 --endian=little "${path}" 2>/dev/null | tr -d ' ' || echo 0)"
+    if [[ "${e_lfanew}" =~ ^[0-9]+$ && "${e_lfanew}" -gt 0 && "${e_lfanew}" -lt 65536 ]]; then
+      machine="$(od -An -tu2 -j$((e_lfanew + 4)) -N2 --endian=little "${path}" 2>/dev/null | tr -d ' ' || echo '')"
+      case "${machine}" in
+        332)   machine="0x014c" ;;
+        34404) machine="0x8664" ;;
+        *)     machine="" ;;
+      esac
+    fi
+  fi
+
+  echo "${machine:-0x014c}"
+}
+
+# Verifica che un PE non contenga istruzioni SSE4.2/POPCNT (solo se il binario
+# e' nativo: i PE Windows compilati con MSVC moderni usano SSE2 come baseline,
+# ma alcuni giochi indie linkano runtime x64-v2/v3).
+warn_if_pe_needs_sse42() {
+  local path="$1"
+  [[ "${PRISMOS_SLIM_VERIFY_ISA}" -eq 1 ]] || return 0
+  have objdump || return 0
+
+  # objdump non disassembla i PE con affidabilita' completa; il controllo e'
+  # euristico e produce solo un warning nel log, mai un blocco.
+  if objdump -d "${path}" 2>/dev/null | grep -Eq '\b(crc32|pcmpgtq|pcmpestri|pcmpistri|popcnt)\b'; then
+    log_warn "il binario $(basename "${path}") contiene istruzioni SSE4.2/POPCNT:"
+    log_warn "  su CPU senza SSE4.2 (es. Pentium P6100) terminera' con SIGILL."
+    log_warn "  Verifica estesa: scripts/verify_legacy_cpu.sh --pe \"${path}\""
+  fi
+}
+
+# =============================================================================
+# GESTIONE PRIVILEGI / PERMESSI SUL FILE
+# =============================================================================
+ensure_readable() {
+  local path="$1"
+  [[ -r "${path}" ]] || die 1 "file non leggibile dall'utente corrente: ${path}"
+}
+
+# =============================================================================
+# SOTTOSISTEMA ANDROID (WAYDROID)
+# =============================================================================
+waydroid_available() {
+  [[ "${PRISMOS_SLIM_WAYDROID_ENABLED}" -eq 1 ]] || return 3
+  have waydroid || return 3
+  [[ -d "${PRISMOS_SLIM_WAYDROID_IMAGE_DIR}" ]] || return 3
+  return 0
+}
+
+waydroid_container_start() {
+  if unit_is_active "${UNIT_WAYDROID_CONTAINER}"; then
+    log_debug "container Waydroid gia' attivo"
+    return 0
+  fi
+
+  if ! unit_exists "${UNIT_WAYDROID_CONTAINER}"; then
+    die 3 "unita' ${UNIT_WAYDROID_CONTAINER} non installata (USE=waydroid mancante?)"
+  fi
+
+  log_info "avvio on-demand del container Waydroid (${UNIT_WAYDROID_CONTAINER})..."
+  local rc=0
+  try_systemctl start "${UNIT_WAYDROID_CONTAINER}" || rc=$?
+  if [[ ${rc} -eq 4 ]]; then
+    die 4 "permesso negato per l'avvio di ${UNIT_WAYDROID_CONTAINER}; verificare /etc/sudoers.d/prismos-slim-launcher"
+  elif [[ ${rc} -ne 0 ]]; then
+    log_error "avvio del container fallito (rc=${rc}); ultime righe di journal:"
+    journalctl -u "${UNIT_WAYDROID_CONTAINER}" -n 25 --no-pager 2>/dev/null || true
+    die 5 "container Waydroid non avviabile"
+  fi
+  ACTIVE_CONTAINER_UNIT="${UNIT_WAYDROID_CONTAINER}"
+  ACTIVE_SUBSYSTEM="waydroid"
+
+  # Attesa della disponibilita' del socket binder e di lxc-start.
+  local waited=0
+  while (( waited < PRISMOS_SLIM_BOOT_TIMEOUT )); do
+    if [[ -S /dev/binderfs/binder ]] || [[ -S /dev/binder ]] || waydroid status >/dev/null 2>&1; then
+      log_info "container Waydroid pronto dopo ${waited}s (RAM libera: $(human_mb "$(mem_available_kb)") )"
+      return 0
+    fi
+    sleep 1
+    (( ++waited ))
+  done
+  die 5 "timeout di ${PRISMOS_SLIM_BOOT_TIMEOUT}s nell'avvio del container Waydroid"
+}
+
+waydroid_session_start() {
+  local unit="${UNIT_WAYDROID_SESSION_TMPL//%u/${EUID}}"
+  if unit_is_active "${unit}"; then
+    log_debug "sessione Waydroid gia' attiva (${unit})"
+    return 0
+  fi
+
+  log_info "avvio della sessione Waydroid (${unit})..."
+  local rc=0
+  try_systemctl start "${unit}" || rc=$?
+  [[ ${rc} -eq 0 ]] || die "${rc}" "avvio fallito di ${unit} (rc=${rc})"
+  ACTIVE_UNIT="${unit}"
+  ACTIVE_SUBSYSTEM="waydroid"
+
+  local waited=0
+  while (( waited < PRISMOS_SLIM_BOOT_TIMEOUT )); do
+    if waydroid status 2>/dev/null | grep -qi 'RUNNING'; then
+      log_info "sessione Waydroid RUNNING dopo ${waited}s"
+      return 0
+    fi
+    sleep 1
+    (( ++waited ))
+  done
+  die 5 "timeout di ${PRISMOS_SLIM_BOOT_TIMEOUT}s: la sessione Waydroid non e' RUNNING"
+}
+
+waydroid_session_stop() {
+  waydroid session stop >/dev/null 2>&1 || true
+  if [[ -n "${ACTIVE_UNIT}" ]]; then
+    log_info "arresto di ${ACTIVE_UNIT}"
+    try_systemctl stop "${ACTIVE_UNIT}" || log_warn "stop di ${ACTIVE_UNIT} non riuscito"
+    ACTIVE_UNIT=""
+  fi
+}
+
+waydroid_container_stop() {
+  if [[ -n "${ACTIVE_CONTAINER_UNIT}" ]]; then
+    log_info "arresto del container ${ACTIVE_CONTAINER_UNIT}"
+    try_systemctl stop "${ACTIVE_CONTAINER_UNIT}" || log_warn "stop del container non riuscito"
+    ACTIVE_CONTAINER_UNIT=""
+  fi
+}
+
+# Elenca i package Android installati nel container.
+waydroid_list_packages() {
+  waydroid app list 2>/dev/null \
+    | awk 'NR>1 && NF>=1 { print $1 }' \
+    | grep -E '^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z0-9_]+)+$' \
+    | sort -u || true
+}
+
+# Ricava il package name di un APK: aapt/aapt2 se disponibili, altrimenti diff
+# della lista pacchetti prima/dopo l'installazione (metodo sempre funzionante).
+apk_package_name() {
+  local apk="$1"
+  local pkg=""
+
+  if have aapt2; then
+    pkg="$(aapt2 dump packagename "${apk}" 2>/dev/null || true)"
+  fi
+  if [[ -z "${pkg}" ]] && have aapt; then
+    pkg="$(aapt dump badging "${apk}" 2>/dev/null \
+           | sed -n "s/^package: name='\([^']*\)'.*/\1/p" | head -n1 || true)"
+  fi
+  echo "${pkg}"
+}
+
+waydroid_install_apk() {
+  local apk="$1"
+  local pkg before after rc=0
+
+  pkg="$(apk_package_name "${apk}")"
+  if [[ -n "${pkg}" ]]; then
+    log_info "APK riconosciuto: package=${pkg}"
+  fi
+
+  if [[ "${PRISMOS_SLIM_ALLOW_INSTALL}" -ne 1 ]]; then
+    [[ -n "${pkg}" ]] || die 1 "installazione disabilitata (PRISMOS_SLIM_ALLOW_INSTALL=0) e package non determinabile"
+    log_warn "installazione disabilitata: provo il solo avvio di ${pkg}"
+    echo "${pkg}"
+    return 0
+  fi
+
+  before="$(waydroid_list_packages)"
+  log_info "installazione di $(basename "${apk}") nel container (puo' richiedere 20-60 s su CPU legacy)..."
+  waydroid app install "${apk}" || rc=$?
+  if [[ ${rc} -ne 0 ]]; then
+    die 1 "waydroid app install ha restituito ${rc}"
+  fi
+  after="$(waydroid_list_packages)"
+
+  if [[ -z "${pkg}" ]]; then
+    pkg="$(comm -13 <(printf '%s\n' "${before}") <(printf '%s\n' "${after}") | head -n1 || true)"
+    [[ -n "${pkg}" ]] || pkg="$(printf '%s\n' "${after}" | tail -n1 || true)"
+    log_info "package ricavato per differenza: ${pkg:-<non determinato>}"
+  fi
+
+  [[ -n "${pkg}" ]] || die 1 "impossibile determinare il package name dell'APK"
+  echo "${pkg}"
+}
+
+# Watchdog: attende la comparsa e poi la scomparsa del processo Android.
+# I processi di Waydroid vivono nel PID namespace ospite (LXC con clone di
+# ipc/uts/net/mount soltanto), quindi sono visibili con pgrep dalla root.
+wait_for_android_app() {
+  local pkg="$1"
+  local appeared=0 waited=0 idle=0 rc=0
+
+  log_info "attesa del processo Android '${pkg}'..."
+  while (( waited < PRISMOS_SLIM_BOOT_TIMEOUT )); do
+    if pgrep -x "${pkg}" >/dev/null 2>&1 || pgrep -f "/${pkg}$" >/dev/null 2>&1; then
+      appeared=1
+      CHILD_PID="$(pgrep -x "${pkg}" 2>/dev/null | head -n1 || pgrep -f "/${pkg}$" 2>/dev/null | head -n1 || echo 0)"
+      break
+    fi
+    sleep "${PRISMOS_SLIM_POLL_INTERVAL}"
+    (( waited += PRISMOS_SLIM_POLL_INTERVAL )) || true
+  done
+
+  if [[ ${appeared} -eq 0 ]]; then
+    log_warn "processo Android non rilevato entro ${PRISMOS_SLIM_BOOT_TIMEOUT}s"
+    log_warn "possibile causa: immagine LineageOS compilata con SSE4.2 (SIGILL)"
+    log_warn "diagnostica: journalctl -u ${UNIT_WAYDROID_SESSION_TMPL//%u/${EUID}} -n 50 --no-pager"
+    return 10
+  fi
+
+  START_TS="$(date +%s)"
+  log_info "app Android '${pkg}' in esecuzione (PID ${CHILD_PID}); watchdog attivo"
+  log_info "RAM libera ora: $(human_mb "$(mem_available_kb)") / $(human_mb "$(mem_total_kb)")"
+
+  while :; do
+    if ! kill -0 "${CHILD_PID}" 2>/dev/null; then
+      if ! pgrep -x "${pkg}" >/dev/null 2>&1; then
+        log_info "app Android '${pkg}' terminata: avvio teardown immediato"
+        return 0
+      fi
+      CHILD_PID="$(pgrep -x "${pkg}" 2>/dev/null | head -n1 || echo "${CHILD_PID}")"
+    fi
+
+    # Idle timeout: se la sessione non riceve input da PRISMOS_SLIM_IDLE_TIMEOUT
+    # secondi il sottosistema viene comunque spento per liberare RAM.
+    if [[ "${PRISMOS_SLIM_IDLE_TIMEOUT}" -gt 0 ]]; then
+      local elapsed last_input
+      elapsed=$(( $(date +%s) - START_TS ))
+      last_input="$(prismos_idle_seconds)"
+      if (( elapsed > PRISMOS_SLIM_IDLE_TIMEOUT && last_input > PRISMOS_SLIM_IDLE_TIMEOUT )); then
+        log_warn "idle timeout di ${PRISMOS_SLIM_IDLE_TIMEOUT}s raggiunto: chiusura di '${pkg}'"
+        kill -TERM "${CHILD_PID}" 2>/dev/null || true
+        sleep "${PRISMOS_SLIM_TEARDOWN_GRACE_SEC}"
+        kill -KILL "${CHILD_PID}" 2>/dev/null || true
+        return 0
+      fi
+    fi
+
+    if ! unit_is_active "${UNIT_WAYDROID_CONTAINER}"; then
+      log_error "il container Waydroid e' terminato in modo anomalo"
+      return 1
+    fi
+
+    sleep "${PRISMOS_SLIM_POLL_INTERVAL}"
+  done
+}
+
+# Secondi di inattivita' dell'input, ricavati da /proc/interrupts (delta) quando
+# non e' disponibile un tool dedicato.
+prismos_idle_seconds() {
+  local marker="${RUN_DIR}/last-input.marker"
+  local current="" previous=0
+
+  current="$(awk '/^ *(0|1|8|12):/ { s += $2 + $3 + $4 + $5 } END { print s+0 }' /proc/interrupts 2>/dev/null || echo 0)"
+  if [[ -f "${marker}" ]]; then
+    previous="$(cat "${marker}" 2>/dev/null || echo 0)"
+  fi
+
+  if [[ "${current}" != "${previous}" ]]; then
+    printf '%s' "${current}" > "${marker}" 2>/dev/null || true
+    echo 0
+  else
+    local now last_touch
+    now="$(date +%s)"
+    last_touch="$(stat -c '%Y' "${marker}" 2>/dev/null || echo "${now}")"
+    echo $(( now - last_touch ))
+  fi
+}
+
+run_apk() {
+  local apk="$1"
+  local pkg="" rc=0
+
+  waydroid_available || die 3 "Waydroid non disponibile (USE=waydroid / immagini LineageOS assenti)"
+
+  acquire_lock waydroid || rc=$?
+  [[ ${rc} -eq 0 ]] || exit "${rc}"
+
+  waydroid_container_start
+  waydroid_session_start
+
+  pkg="$(waydroid_install_apk "${apk}")"
+  log_info "lancio di ${pkg} via Waydroid..."
+  waydroid app launch "${pkg}" >/dev/null 2>&1 || log_warn "waydroid app launch ha segnalato un errore (proseguo con il watchdog)"
+
+  wait_for_android_app "${pkg}" || rc=$?
+  ACTIVE_SUBSYSTEM="waydroid"
+  return "${rc}"
+}
+
+# =============================================================================
+# SOTTOSISTEMA WINDOWS (WINE)
+# =============================================================================
+wine_available() {
+  [[ "${PRISMOS_SLIM_WINE_ENABLED}" -eq 1 ]] || return 3
+  have wine || have wine64 || return 3
+  return 0
+}
+
+wine_binary_for_kind() {
+  case "$1" in
+    exe64) have wine64 && echo "wine64" || echo "wine" ;;
+    exe32|msi) echo "wine" ;;
+    *) echo "wine" ;;
+  esac
+}
+
+wine_prefix_path() {
+  local name="${1:-${PRISMOS_SLIM_WINE_DEFAULT_PREFIX}}"
+  echo "${PRISMOS_SLIM_WINE_PREFIX_ROOT}/${name}"
+}
+
+wine_session_start() {
+  local unit="${UNIT_WINE_SESSION_TMPL//%u/${EUID}}"
+  if unit_is_active "${unit}"; then
+    log_debug "sessione Wine gia' attiva (${unit})"
+    ACTIVE_UNIT="${unit}"
+    ACTIVE_SUBSYSTEM="wine"
+    return 0
+  fi
+  if ! unit_exists "${unit}"; then
+    die 3 "unita' ${unit} non installata (USE=wine mancante?)"
+  fi
+
+  log_info "avvio on-demand della sessione Wine (${unit})..."
+  local rc=0
+  try_systemctl start "${unit}" || rc=$?
+  if [[ ${rc} -eq 4 ]]; then
+    die 4 "permesso negato per l'avvio di ${unit}; verificare /etc/sudoers.d/prismos-slim-launcher"
+  elif [[ ${rc} -ne 0 ]]; then
+    die 5 "avvio fallito di ${unit} (rc=${rc})"
+  fi
+  ACTIVE_UNIT="${unit}"
+  ACTIVE_SUBSYSTEM="wine"
+
+  local waited=0
+  while (( waited < PRISMOS_SLIM_BOOT_TIMEOUT )); do
+    if pgrep -x wineserver >/dev/null 2>&1; then
+      log_info "wineserver pronto dopo ${waited}s (RAM libera: $(human_mb "$(mem_available_kb)") )"
+      return 0
+    fi
+    sleep 1
+    (( ++waited ))
+  done
+  die 5 "timeout: wineserver non e' partito entro ${PRISMOS_SLIM_BOOT_TIMEOUT}s"
+}
+
+wine_session_stop() {
+  if have wineserver; then
+    WINEPREFIX="$(wine_prefix_path)" wineserver -k >/dev/null 2>&1 || true
+  fi
+  pkill -x wineserver >/dev/null 2>&1 || true
+  if [[ -n "${ACTIVE_UNIT}" ]]; then
+    log_info "arresto di ${ACTIVE_UNIT}"
+    try_systemctl stop "${ACTIVE_UNIT}" || log_warn "stop di ${ACTIVE_UNIT} non riuscito"
+    ACTIVE_UNIT=""
+  fi
+}
+
+run_windows_binary() {
+  local path="$1" kind="$2"
+  local wine_bin prefix rc=0
+
+  wine_available || die 3 "Wine non disponibile (USE=wine mancante?)"
+
+  acquire_lock wine || rc=$?
+  [[ ${rc} -eq 0 ]] || exit "${rc}"
+
+  wine_bin="$(wine_binary_for_kind "${kind}")"
+  prefix="$(wine_prefix_path)"
+  mkdir -p "${prefix}/drive_c" 2>/dev/null || true
+
+  warn_if_pe_needs_sse42 "${path}"
+  wine_session_start
+
+  # Ambiente Proton ottimizzato per Intel HD Graphics Gen5 (niente Vulkan):
+  # wined3d al posto di DXVK, fsync per ridurre i context switch su 2 core.
+  export WINEPREFIX="${prefix}"
+  export WINEARCH="$([[ "${kind}" == "exe64" ]] && echo win64 || echo win32)"
+  export WINEDEBUG="${WINEDEBUG:--all}"
+  export WINEDLLOVERRIDES="mscoree,mshtml="
+  export PROTON_USE_WINED3D=1
+  export PROTON_NO_ESYNC=0
+  export PROTON_USE_FSYNC=1
+  export PROTON_NO_D3D11=0
+  export DXVK_NVAPIHACK=0
+  export STAGING_SHARED_MEMORY=1
+  export mesa_glthread=false
+  export LIBGL_DRI3_DISABLE=1
+
+  local args=()
+  if [[ "${kind}" == "msi" ]]; then
+    args=(msiexec /i "$(wine_path "${path}")")
+    log_info "esecuzione installer MSI: ${path}"
+  else
+    args=("$(wine_path "${path}")")
+    log_info "esecuzione eseguibile Windows (${kind}): ${path}"
+  fi
+
+  "${wine_bin}" "${args[@]}" &
+  CHILD_PID=$!
+  START_TS="$(date +%s)"
+  log_info "PID ospite ${CHILD_PID}; watchdog attivo"
+
+  # Il watchdog intercetta anche il segnale di terminazione per propagarlo.
+  local wait_rc=0
+  wait "${CHILD_PID}" || wait_rc=$?
+
+  ACTIVE_SUBSYSTEM="wine"
+  if (( wait_rc > 128 )); then
+    local sig=$(( wait_rc - 128 ))
+    log_warn "processo Windows terminato dal segnale ${sig}"
+    if (( sig == 4 )); then
+      log_error "SIGILL: il binario usa istruzioni non supportate dalla CPU (SSE4.2/POPCNT?)"
+      return 10
+    fi
+    return 1
+  fi
+  return 0
+}
+
+# Converte un percorso ospite in percorso Windows (C:\...) per msiexec.
+wine_path() {
+  local path="$1"
+  local prefix
+  prefix="$(wine_prefix_path)"
+
+  if [[ "${path}" == "${prefix}/drive_c/"* ]]; then
+    local rel="${path#"${prefix}/drive_c/"}"
+    rel="${rel//\//\\}"
+    printf 'C:\\%s\n' "${rel}"
+    return 0
+  fi
+
+  # Percorso esterno al prefix: mappatura standard Wine sull'unita' Z:
+  printf 'Z:%s\n' "$(realpath -- "${path}" 2>/dev/null || printf '%s' "${path}")"
+}
+
+# =============================================================================
+# TEARDOWN GLOBALE
+# =============================================================================
+cleanup() {
+  local exit_code=$?
+  [[ "${CLEANUP_DONE}" -eq 1 ]] && return 0
+  CLEANUP_DONE=1
+
+  if [[ "${WATCHDOG_PID}" -ne 0 ]] && kill -0 "${WATCHDOG_PID}" 2>/dev/null; then
+    kill -TERM "${WATCHDOG_PID}" 2>/dev/null || true
+  fi
+
+  if [[ "${CHILD_PID}" -ne 0 ]] && kill -0 "${CHILD_PID}" 2>/dev/null; then
+    log_info "chiusura del processo ospite PID ${CHILD_PID} (SIGTERM)"
+    kill -TERM "${CHILD_PID}" 2>/dev/null || true
+    local waited=0
+    while kill -0 "${CHILD_PID}" 2>/dev/null && (( waited < PRISMOS_SLIM_TEARDOWN_GRACE_SEC )); do
+      sleep 1; (( ++waited )) || true
+    done
+    if kill -0 "${CHILD_PID}" 2>/dev/null; then
+      log_warn "processo ospite ancora vivo dopo ${PRISMOS_SLIM_TEARDOWN_GRACE_SEC}s: SIGKILL"
+      kill -KILL "${CHILD_PID}" 2>/dev/null || true
+    fi
+  fi
+
+  case "${ACTIVE_SUBSYSTEM}" in
+    waydroid)
+      log_info "teardown Waydroid: rilascio immediato della RAM"
+      waydroid_session_stop
+      waydroid_container_stop
+      waydroid_prune_mounts
+      ;;
+    wine)
+      log_info "teardown Wine: rilascio immediato della RAM"
+      wine_session_stop
+      ;;
+  esac
+
+  if [[ "${PRISMOS_SLIM_DROP_CACHES}" -eq 1 && ${EUID} -eq 0 ]]; then
+    sync
+    echo 3 > /proc/sys/vm/drop_caches 2>/dev/null || true
+  fi
+
+  release_lock
+  log_info "sottosistema spento. RAM libera: $(human_mb "$(mem_available_kb)") / $(human_mb "$(mem_total_kb)")"
+  exit "${exit_code}"
+}
+
+# Rimuove i bind mount residui lasciati dal container LXC di Waydroid.
+waydroid_prune_mounts() {
+  local mp
+  while read -r mp; do
+    [[ -n "${mp}" ]] || continue
+    case "${mp}" in
+      /var/lib/waydroid/*|/dev/binderfs*|/home/*/waydroid/*)
+        log_debug "umount ${mp}"
+        umount -l "${mp}" 2>/dev/null || umount "${mp}" 2>/dev/null || true
+        ;;
+    esac
+  done < <(awk '{ print $2 }' /proc/mounts 2>/dev/null | grep -E 'waydroid|binderfs' || true)
+
+  # Processi Android orfani (zygote, surfaceflinger, system_server).
+  local p
+  for p in zygote surfaceflinger system_server logcat servicemanager hwservicemanager; do
+    pkill -x "${p}" >/dev/null 2>&1 || true
+  done
+}
+
+# =============================================================================
+# SOTTOCOMANDI
+# =============================================================================
+cmd_status() {
+  local wu="${UNIT_WAYDROID_SESSION_TMPL//%u/${EUID}}"
+  local nu="${UNIT_WINE_SESSION_TMPL//%u/${EUID}}"
+
+  printf '%-42s %-10s %-10s\n' "COMPONENTE" "STATO" "RAM"
+  printf '%-42s %-10s %-10s\n' "------------------------------------------" "----------" "----------"
+  printf '%-42s %-10s %-10s\n' "${UNIT_WAYDROID_CONTAINER}" \
+    "$(systemctl is-active "${UNIT_WAYDROID_CONTAINER}" 2>/dev/null || echo 'n/a')" "-"
+  printf '%-42s %-10s %-10s\n' "${wu}" \
+    "$(systemctl is-active "${wu}" 2>/dev/null || echo 'n/a')" "-"
+  printf '%-42s %-10s %-10s\n' "${nu}" \
+    "$(systemctl is-active "${nu}" 2>/dev/null || echo 'n/a')" "-"
+  printf '%-42s %-10s %-10s\n' "wineserver" \
+    "$(pgrep -x wineserver >/dev/null 2>&1 && echo active || echo inactive)" "-"
+  printf '%-42s %-10s %-10s\n' "RAM disponibile" "-" "$(human_mb "$(mem_available_kb)")"
+  printf '%-42s %-10s %-10s\n' "RAM totale" "-" "$(human_mb "$(mem_total_kb)")"
+
+  local iso=""
+  if [[ -f /proc/cpuinfo ]]; then
+    iso="$(grep -m1 '^flags' /proc/cpuinfo | grep -oE 'sse4_1|sse4_2|popcnt' | sort -u | paste -sd' ' - || true)"
+  fi
+  printf '%-42s %-10s %-10s\n' "ISA CPU ospite" "${iso:-sconosciuta}" "-"
+  return 0
+}
+
+cmd_stop_all() {
+  log_info "arresto forzato di tutti i sottosistemi on-demand..."
+  ACTIVE_SUBSYSTEM="waydroid"
+  waydroid_session_stop
+  waydroid_container_stop
+  waydroid_prune_mounts
+  ACTIVE_SUBSYSTEM="wine"
+  ACTIVE_UNIT="${UNIT_WINE_SESSION_TMPL//%u/${EUID}}"
+  wine_session_stop
+  ACTIVE_SUBSYSTEM=""
+  release_lock
+  cmd_status
+  return 0
+}
+
+# Libera spazio: rimuove i prefix Wine non usati da N giorni e le cache APK.
+cmd_gc() {
+  local days="${1:-30}"
+  log_info "garbage collection: prefix Wine inattivi da piu' di ${days} giorni"
+  local prefix
+  for prefix in "${PRISMOS_SLIM_WINE_PREFIX_ROOT}"/*; do
+    [[ -d "${prefix}" ]] || continue
+    [[ "${prefix}" == *"/${PRISMOS_SLIM_WINE_DEFAULT_PREFIX}" ]] && continue
+    if [[ -n "$(find "${prefix}" -maxdepth 0 -mtime "+${days}" 2>/dev/null)" ]]; then
+      log_info "rimozione di ${prefix}"
+      rm -rf -- "${prefix}"
+    fi
+  done
+  local cache="${HOME:-/tmp}/.cache/waydroid"
+  if [[ -d "${cache}" ]]; then
+    find "${cache}" -type f -mtime "+${days}" -delete 2>/dev/null || true
+    log_info "cache Waydroid ripulita (${cache})"
+  fi
+  if [[ "${PRISMOS_SLIM_DROP_CACHES}" -eq 1 && ${EUID} -eq 0 ]]; then
+    sync; echo 3 > /proc/sys/vm/drop_caches 2>/dev/null || true
+  fi
+  cmd_status
+  return 0
+}
+
+# Diagnostica completa dell'ambiente on-demand.
+cmd_doctor() {
+  local problems=0
+  printf '== prismOS Slim doctor ==\n'
+
+  printf '\n[1/6] CPU / ISA\n'
+  if grep -m1 '^flags' /proc/cpuinfo 2>/dev/null | grep -q 'sse4_2'; then
+    printf "  OK   : SSE4.2 presente (l'immagine gira anche su CPU piu' recenti)\n"
+  else
+    printf '  OK   : SSE4.2 ASSENTE -> profilo ISA prismOS Legacy corretto\n'
+  fi
+  if ! grep -m1 '^flags' /proc/cpuinfo 2>/dev/null | grep -q 'sse4_1'; then
+    printf '  FATAL: SSE4.1 assente. prismOS richiede almeno SSE4.1.\n'; (( ++problems )) || true
+  fi
+
+  printf '\n[2/6] Kernel / binder\n'
+  local binder_ok=0
+  [[ -d /dev/binderfs ]] && binder_ok=1
+  [[ -c /dev/binder ]] && binder_ok=1
+  if [[ ${binder_ok} -eq 1 ]]; then
+    printf '  OK   : nodo binder disponibile\n'
+  else
+    if grep -qE '^(CONFIG_ANDROID_BINDER_IPC|CONFIG_ANDROID_BINDERFS)=y' /boot/config-$(uname -r) 2>/dev/null \
+       || zcat /proc/config.gz 2>/dev/null | grep -qE '^(CONFIG_ANDROID_BINDER_IPC|CONFIG_ANDROID_BINDERFS)=y'; then
+      printf "  WARN : kernel configurato ma binderfs non montato (lo monta la unita' container)\n"
+    else
+      printf '  FATAL: kernel senza CONFIG_ANDROID_BINDER_IPC/CONFIG_ANDROID_BINDERFS\n'; (( ++problems )) || true
+    fi
+  fi
+
+  printf '\n[3/6] Waydroid\n'
+  if have waydroid; then
+    printf '  OK   : %s\n' "$(waydroid --version 2>/dev/null || echo 'waydroid presente')"
+    if [[ -d "${PRISMOS_SLIM_WAYDROID_IMAGE_DIR}" ]] && \
+       [[ -s "${PRISMOS_SLIM_WAYDROID_IMAGE_DIR}/system.img" ]]; then
+      printf '  OK   : system.img presente (%s)\n' \
+        "$(du -h "${PRISMOS_SLIM_WAYDROID_IMAGE_DIR}/system.img" 2>/dev/null | cut -f1)"
+      if grep -qE '^(ro\.product\.cpu\.abi|x86)' "${PRISMOS_SLIM_WAYDROID_IMAGE_DIR}/waydroid_base.prop" 2>/dev/null; then
+        printf '  INFO : prop file rilevato\n'
+      fi
+    else
+      printf '  FATAL: system.img assente in %s -> eseguire scripts/provision_waydroid_image.sh\n' \
+        "${PRISMOS_SLIM_WAYDROID_IMAGE_DIR}"; (( ++problems )) || true
+    fi
+  else
+    printf '  FATAL: comando waydroid non installato (USE=waydroid)\n'; (( ++problems )) || true
+  fi
+
+  printf '\n[4/6] Wine\n'
+  if have wine || have wine64; then
+    printf '  OK   : %s\n' "$(wine --version 2>/dev/null || wine64 --version 2>/dev/null || echo 'wine presente')"
+    if [[ "${PRISMOS_SLIM_WINE_ENABLED}" -eq 1 ]]; then
+      printf '  OK   : sottosistema Windows abilitato\n'
+    else
+      printf '  WARN : PRISMOS_SLIM_WINE_ENABLED=0 in %s\n' "${CONF_FILE}"
+    fi
+  else
+    printf '  FATAL: wine non installato (USE=wine)\n'; (( ++problems )) || true
+  fi
+
+  printf "\n[5/6] Unita' systemd on-demand\n"
+  local unit
+  for unit in "${UNIT_WAYDROID_CONTAINER}" \
+              "${UNIT_WAYDROID_SESSION_TMPL//%u/${EUID}}" \
+              "${UNIT_WINE_SESSION_TMPL//%u/${EUID}}"; do
+    if unit_exists "${unit}"; then
+      printf '  OK   : %-45s %s\n' "${unit}" "$(systemctl is-enabled "${unit}" 2>/dev/null || echo 'static')"
+    else
+      printf '  FATAL: %-45s MANCANTE\n' "${unit}"; (( ++problems )) || true
+    fi
+  done
+  if [[ ${EUID} -ne 0 ]] && ! have pkexec && ! sudo -n true 2>/dev/null; then
+    printf '  WARN : nessun metodo di elevazione (pkexec/sudoers) disponibile\n'; (( ++problems )) || true
+  fi
+
+  printf '\n[6/6] Memoria\n'
+  printf '  INFO : totale=%s disponibile=%s soglia idle=%ss\n' \
+    "$(human_mb "$(mem_total_kb)")" "$(human_mb "$(mem_available_kb)")" "${PRISMOS_SLIM_IDLE_TIMEOUT}"
+  local total_mb=$(( $(mem_total_kb) / 1024 ))
+  if (( total_mb < 2048 )); then
+    printf '  OK   : macchina <2 GB di RAM -> profilo Slim coerente\n'
+  else
+    printf "  INFO : %d MB di RAM -> valutare prismOS Home/Work per piu' funzionalita'\n" "${total_mb}"
+  fi
+
+  printf '\n== esito: %d problemi critici ==\n' "${problems}"
+  [[ ${problems} -eq 0 ]]
+}
+
+cmd_help() {
+  cat <<HELP
+${PROG_NAME} ${PROG_VERSION} - supervisore on-demand dei sottosistemi prismOS Slim
+
+USO
+  ${PROG_NAME} <percorso-file>            apre un .apk / .exe / .msi avviando e
+                                          poi spegnendo il sottosistema
+  ${PROG_NAME} run <percorso-file>        equivalente alla forma precedente
+  ${PROG_NAME} run-package <package>      avvia un'app Android gia' installata
+  ${PROG_NAME} status                     stato unita', RAM e ISA CPU
+  ${PROG_NAME} stop-all                   spegne subito Waydroid e Wine
+  ${PROG_NAME} gc [giorni]                rimuove prefix/cache inattivi
+  ${PROG_NAME} doctor                     diagnostica completa dell'ambiente
+  ${PROG_NAME} --version | --help
+
+VARIABILI D'AMBIENTE RICONOSCIUTE
+  PRISMOS_WINE_PREFIX       nome del prefix Wine (default: ${PRISMOS_SLIM_WINE_DEFAULT_PREFIX})
+  PRISMOS_WAYDROID_IMAGE    directory immagini (default: ${PRISMOS_SLIM_WAYDROID_IMAGE_DIR})
+  PRISMOS_SLIM_FORCE_KIND   forza il tipo file: apk | exe32 | exe64 | msi
+  PRISMOS_SLIM_NO_TEARDOWN  =1 mantiene il sottosistema attivo dopo la chiusura
+
+CONFIGURAZIONE
+  ${CONF_FILE}
+
+ESEMPI
+  ${PROG_NAME} ~/Downloads/WhatsApp.apk
+  ${PROG_NAME} ~/Downloads/setup_gestionale.exe
+  ${PROG_NAME} run-package com.spotify.music
+  ${PROG_NAME} status
+HELP
+}
+
+cmd_run_package() {
+  local pkg="${1:-}"
+  [[ -n "${pkg}" ]] || die 1 "uso: ${PROG_NAME} run-package <package.name>"
+  local rc=0
+  waydroid_available || die 3 "Waydroid non disponibile"
+  acquire_lock waydroid || rc=$?
+  [[ ${rc} -eq 0 ]] || exit "${rc}"
+  waydroid_container_start
+  waydroid_session_start
+  ACTIVE_SUBSYSTEM="waydroid"
+  log_info "lancio diretto del package ${pkg}"
+  waydroid app launch "${pkg}" >/dev/null 2>&1 || die 1 "waydroid app launch ${pkg} fallito"
+  wait_for_android_app "${pkg}" || rc=$?
+  return "${rc}"
+}
+
+# =============================================================================
+# MAIN
+# =============================================================================
+main() {
+  local argv0="${1:-}"
+  [[ -n "${argv0}" ]] || { cmd_help; exit 1; }
+
+  case "${argv0}" in
+    -h|--help|help)         cmd_help; exit 0 ;;
+    -V|--version|version)   echo "${PROG_NAME} ${PROG_VERSION}"; exit 0 ;;
+    status)                 shift; load_config; cmd_status; exit $? ;;
+    stop-all|stopall)       shift; load_config; cmd_stop_all; exit $? ;;
+    gc)                     shift; load_config; cmd_gc "${1:-30}"; exit $? ;;
+    doctor)                 shift; load_config; cmd_doctor; exit $? ;;
+    run)                    shift; argv0="${1:-}" ;;
+    run-package)            shift; load_config; cmd_run_package "${1:-}"; exit $? ;;
+  esac
+
+  [[ -n "${argv0}" ]] || { cmd_help; exit 1; }
+  shift || true
+
+  load_config
+
+  # Override da ambiente.
+  [[ -n "${PRISMOS_WAYDROID_IMAGE:-}" ]] && PRISMOS_SLIM_WAYDROID_IMAGE_DIR="${PRISMOS_WAYDROID_IMAGE}"
+  local prefix_name="${PRISMOS_WINE_PREFIX:-${PRISMOS_SLIM_WINE_DEFAULT_PREFIX}}"
+
+  local target="${argv0}"
+  [[ -e "${target}" ]] || die 2 "file inesistente: ${target}"
+  target="$(realpath -- "${target}" 2>/dev/null || echo "${target}")"
+  ensure_readable "${target}"
+
+  mkdir -p "${RUN_DIR}" 2>/dev/null || true
+  chmod 1777 "${RUN_DIR}" 2>/dev/null || true
+
+  local kind="${PRISMOS_SLIM_FORCE_KIND:-}"
+  if [[ -z "${kind}" ]]; then
+    kind="$(detect_file_kind "${target}")"
+    if [[ "${kind}" == "unknown" ]]; then
+      # Fallback sull'estensione (utile quando `od`/`unzip` non sono presenti).
+      case "${target,,}" in
+        *.apk) kind="apk" ;;
+        *.exe) kind="exe32" ;;
+        *.msi) kind="msi" ;;
+        *)     kind="unknown" ;;
+      esac
+    fi
+  fi
+
+  log_info "file=${target} tipo=${kind} utente=${USER:-$(id -un)} euid=${EUID} RAM_libera=$(human_mb "$(mem_available_kb)")"
+
+  trap cleanup EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+
+  local rc=0
+  case "${kind}" in
+    apk)
+      run_apk "${target}" || rc=$?
+      ;;
+    exe32|exe64)
+      PRISMOS_SLIM_WINE_DEFAULT_PREFIX="${prefix_name}" run_windows_binary "${target}" "${kind}" || rc=$?
+      ;;
+    msi)
+      PRISMOS_SLIM_WINE_DEFAULT_PREFIX="${prefix_name}" run_windows_binary "${target}" "msi" || rc=$?
+      ;;
+    unknown)
+      die 2 "tipo di file non riconosciuto (attesi .apk, .exe o .msi): ${target}"
+      ;;
+  esac
+
+  if [[ "${PRISMOS_SLIM_NO_TEARDOWN:-0}" == "1" ]]; then
+    log_warn "PRISMOS_SLIM_NO_TEARDOWN=1: il sottosistema resta attivo"
+    ACTIVE_SUBSYSTEM=""
+    ACTIVE_UNIT=""
+    ACTIVE_CONTAINER_UNIT=""
+  fi
+
+  if (( rc == 0 )); then
+    log_info "operazione completata correttamente"
+  else
+    log_warn "operazione conclusa con codice ${rc}"
+  fi
+  exit "${rc}"
+}
+
+main "$@"

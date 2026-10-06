@@ -1,0 +1,15 @@
+# /etc/env.d/99prismos-wine  -  generato da app-emulation/prismos-wine-config
+# Ambiente Wine predefinito per tutti gli utenti di sessione.
+# Le impostazioni reali vengono poi sovrascritte da /run/prismos/wine-<uid>.env
+# (scritto da prismos-wine-prepare in base al socket Wayland e alla presenza
+# di Vulkan) e da /usr/bin/prismos-wine-run.
+WINEPREFIX="/home/chronos/user/WineBottles/Default"
+WINEARCH="win64"
+WINEDEBUG="-all"
+WINEDLLOVERRIDES="mscoree=d;mshtml=d"
+WINEESYNC="1"
+WINEFSYNC="1"
+PROTON_USE_WINED3D="1"
+PRISMOS_WINE_PREFIX_ROOT="/home/chronos/user/WineBottles"
+PRISMOS_WINE_PREFIX="Default"
+LDPATH="/usr/lib64/wine:/usr/lib/wine"

@@ -1,0 +1,44 @@
+# =============================================================================
+#  /etc/env.d/50prismos-gpu  (app-misc/prismos-runtime-config)
+# -----------------------------------------------------------------------------
+#  Ambiente grafico per Intel HD Graphics 1a generazione (Ironlake / Gen5,
+#  PCI ID 8086:0046 su Intel Pentium P6100).
+#
+#  Vincoli hardware:
+#    OpenGL 2.1  (driver Mesa "crocus", Gen4-Gen7)
+#    OpenGL ES 2.0 via ANGLE
+#    NESSUN Vulkan (il primo ICD Intel "anv" richiede Gen8/Skylake)
+#    VA-API parziale (i965: MPEG-2/VC1 VLD; H.264 NON accelerato su Gen5)
+#    DRI3 incompleto su Gen5 -> si forza DRI2 (LIBGL_DRI3_DISABLE)
+# =============================================================================
+
+# --- Mesa / DRI ---------------------------------------------------------------
+MESA_LOADER_DRIVER_OVERRIDE="crocus"
+GALLIUM_DRIVER="crocus"
+LIBGL_DRI3_DISABLE="1"
+LIBGL_ALWAYS_SOFTWARE="0"
+GLX_VENDOR_LIBRARY_NAME="mesa"
+DRI_PRIME="0"
+MESA_SHADER_CACHE_DISABLE="false"
+MESA_SHADER_CACHE_MAX_SIZE="128M"
+MESA_SHADER_CACHE_DIR="/var/cache/prismos/mesa"
+
+# --- VA-API --------------------------------------------------------------------
+# i965 e' l'unico backend libva per Gen5. La decodifica H.264/VP9 ricade su
+# software (dav1d/ffmpeg con path SIMD SSE4.1): e' il comportamento atteso e
+# desiderato su questo hardware, non un errore di configurazione.
+LIBVA_DRIVER_NAME="i965"
+LIBVA_DRIVERS_PATH="/usr/lib64/dri"
+GST_VAAPI_ALL_HARDWARE="0"
+
+# --- Chromium / Ash -------------------------------------------------------------
+# Flags passati a chrome dalla sessione (vedi anche /etc/default/chromium-browser).
+CHROMEOS_GPU_FLAGS="--use-gl=angle --use-angle=gl --ignore-gpu-blocklist --enable-gpu-rasterization=false --disable-gpu-sandbox --num-raster-threads=1 --disable-features=VaapiVideoDecoder,VaapiVideoEncoder,UseChromeOSDirectVideoDecoder,Vulkan,DefaultANGLEVulkan --enable-features=CanvasOopRasterization"
+OZONE_PLATFORM="wayland"
+XDG_SESSION_TYPE="wayland"
+
+# --- Audio ------------------------------------------------------------------------
+# PipeWire e' escluso in Slim (USE=-pipewire): ALSA diretto, circa 40 MB di RSS
+# in meno. Su EDU/Home/Work PipeWire resta attivo per la gestione dei device.
+PULSE_LATENCY_MSEC="60"
+LDPATH="/usr/lib64/dri"

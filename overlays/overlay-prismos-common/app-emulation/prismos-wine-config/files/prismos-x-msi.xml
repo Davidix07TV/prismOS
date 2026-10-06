@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  =============================================================================
+   /usr/share/mime/packages/prismos-x-msi.xml
+  =============================================================================
+   shared-mime-info non definisce application/x-msi nel database freedesktop:
+   gli installer Windows cadono in application/x-ole-storage (generico) e il
+   file manager non offre l'esecuzione. prismOS registra il tipo in modo
+   esplicito, con magic a priorita' 60 cosi' che il contenuto OLE2/CFB vinca
+   sull'estensione quando le due informazioni divergono.
+  =============================================================================
+-->
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="application/x-msi">
+    <comment>Windows Installer package</comment>
+    <comment xml:lang="it">Pacchetto di installazione Windows (MSI)</comment>
+    <acronym>MSI</acronym>
+    <expanded-acronym>Microsoft Installer</expanded-acronym>
+    <generic-icon name="package-x-generic"/>
+    <glob pattern="*.msi"/>
+    <glob pattern="*.msp"/>
+    <glob pattern="*.msm"/>
+    <magic priority="60">
+      <match type="string" offset="0" value="\320\317\021\340\241\261\032\341"/>
+    </magic>
+  </mime-type>
+
+  <mime-type type="application/x-ms-dos-executable">
+    <comment>Windows executable</comment>
+    <comment xml:lang="it">Eseguibile Windows (PE/MZ)</comment>
+    <acronym>EXE</acronym>
+    <expanded-acronym>Portable Executable</expanded-acronym>
+    <generic-icon name="application-x-executable"/>
+    <glob pattern="*.exe"/>
+    <glob pattern="*.dll"/>
+    <glob pattern="*.scr"/>
+    <glob pattern="*.cpl"/>
+    <glob pattern="*.com"/>
+    <magic priority="60">
+      <match type="string" offset="0" value="MZ">
+        <match type="little32" offset="60" value="&lt;65536"/>
+      </match>
+    </magic>
+  </mime-type>
+
+  <mime-type type="application/vnd.android.package-archive">
+    <comment>Android application package</comment>
+    <comment xml:lang="it">Pacchetto applicativo Android (APK)</comment>
+    <acronym>APK</acronym>
+    <expanded-acronym>Android Package Kit</expanded-acronym>
+    <generic-icon name="apk"/>
+    <glob pattern="*.apk"/>
+    <glob pattern="*.xapk"/>
+    <glob pattern="*.apks"/>
+    <sub-class-of type="application/zip"/>
+  </mime-type>
+
+  <mime-type type="application/x-ms-wine-prefix">
+    <comment>Wine prefix directory</comment>
+    <comment xml:lang="it">Prefisso Wine</comment>
+    <generic-icon name="folder"/>
+    <glob pattern="*.wineprefix"/>
+  </mime-type>
+</mime-info>

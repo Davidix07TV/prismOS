@@ -1,0 +1,30 @@
+# =============================================================================
+#  prismOS Home :: profiles/base/make.defaults
+# -----------------------------------------------------------------------------
+#  USE di profilo dell'edizione Home: intrattenimento, streaming, gaming leggero.
+# =============================================================================
+
+PRISMOS_EDITION="prismos_edition_home"
+PRISMOS_EDITION_ID="home"
+PROFILE_ONLY_VARIABLES="PRISMOS_EDITION PRISMOS_EDITION_ID"
+
+# media-stack    : ffmpeg completo, dav1d, PipeWire, codec proprietari
+# cloud-gaming   : tuning di rete per GeForce NOW / Xbox Cloud
+# android-gaming : Waydroid attivo al boot con input mapping per gamepad
+# windows-gaming : Wine + Proton attivi, prefix pre-inizializzato
+# drm-l3         : Widevine L3 (720p su Netflix/Prime: il massimo senza TEE)
+USE="${USE} prismos_edition_home media-stack cloud-gaming android-gaming \
+windows-gaming drm-l3 waydroid wine proton bottles gstreamer pipewire \
+pulseaudio vaapi widevine h264 aac mp3 proprietary-codecs -crostini \
+-device-restrict -kiosk-exam"
+
+USE="${USE} -arc -arc-plus -arcplusplus -arcvm"
+
+PRISMOS_SUBSYSTEM="prismos_subsystem_waydroid prismos_subsystem_wine"
+
+SYSTEM_PACKAGES="${SYSTEM_PACKAGES} \
+app-emulation/bottles \
+app-emulation/dxvk \
+app-emulation/vkd3d-proton \
+games-util/xboxdrv \
+media-sound/pipewire"

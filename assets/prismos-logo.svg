@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  prismOS logo - rendition vettoriale del marchio (lettera "P" isometrica a
+  facce piegate: stelo blu, vertice e faccia destra magenta, nastro viola).
+  Sfondo trasparente: leggibile sia sul tema chiaro sia su quello scuro di
+  GitHub. Geometria derivata dal marchio originale raster 1024x1024.
+-->
+<svg xmlns="http://www.w3.org/2000/svg"
+     xmlns:xlink="http://www.w3.org/1999/xlink"
+     viewBox="0 0 1024 1024" width="512" height="512"
+     role="img" aria-labelledby="titolo desc">
+  <title id="titolo">prismOS</title>
+  <desc id="desc">Lettera P isometrica composta da facce piegate: stelo blu, vertice e faccia destra magenta, nastro inferiore viola.</desc>
+
+  <defs>
+    <!-- stelo: azzurro brillante in alto, blu profondo in basso -->
+    <linearGradient id="stelo" x1="0" y1="0" x2="0.35" y2="1">
+      <stop offset="0" stop-color="#2fb0e4"/>
+      <stop offset="0.55" stop-color="#1d76b4"/>
+      <stop offset="1" stop-color="#164a80"/>
+    </linearGradient>
+    <!-- faccia superiore sinistra -->
+    <linearGradient id="cimaBlu" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#37bdea"/>
+      <stop offset="1" stop-color="#1878b6"/>
+    </linearGradient>
+    <!-- faccia superiore destra -->
+    <linearGradient id="cimaRosa" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f06fa9"/>
+      <stop offset="1" stop-color="#d84a86"/>
+    </linearGradient>
+    <!-- faccia destra -->
+    <linearGradient id="fiancoRosa" x1="0" y1="0" x2="0.2" y2="1">
+      <stop offset="0" stop-color="#e75d9c"/>
+      <stop offset="1" stop-color="#c33a7c"/>
+    </linearGradient>
+    <!-- nastro della pancia: magenta verso viola-blu -->
+    <linearGradient id="nastro" x1="1" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#c0448a"/>
+      <stop offset="0.5" stop-color="#8a4b9d"/>
+      <stop offset="1" stop-color="#33629f"/>
+    </linearGradient>
+  </defs>
+
+  <!-- faccia superiore sinistra (blu) -->
+  <polygon points="330,360 512,250 455,420" fill="url(#cimaBlu)"/>
+  <!-- faccia superiore destra (magenta) -->
+  <polygon points="512,250 695,360 560,465" fill="url(#cimaRosa)"/>
+  <!-- stelo verticale (blu), con punta inferiore -->
+  <polygon points="330,360 455,420 448,530 448,712 332,768" fill="url(#stelo)"/>
+  <!-- faccia destra (magenta) -->
+  <polygon points="512,250 695,360 695,525 560,465" fill="url(#fiancoRosa)"/>
+  <!-- nastro inferiore della pancia (viola-blu) -->
+  <polygon points="560,465 695,525 448,672 448,530" fill="url(#nastro)"/>
+  <!-- L'incavo centrale (455,420 560,465 448,530) e' volutamente lasciato
+       vuoto: lo sfondo trasparente forma la controforma della P. -->
+</svg>

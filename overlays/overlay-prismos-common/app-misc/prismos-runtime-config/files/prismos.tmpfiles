@@ -1,0 +1,25 @@
+# =============================================================================
+#  /usr/lib/tmpfiles.d/prismos.conf   (app-misc/prismos-runtime-config)
+#  Directory di runtime e di stato create ad ogni avvio, prima dei servizi.
+#  Formato: type path mode uid gid age argument
+# =============================================================================
+d /run/prismos                         0755 root    root    -   -
+d /run/prismos/slim-launcher           1777 root    root    -   -
+d /run/prismos/waydroid                0750 root    root    -   -
+d /run/prismos/wine                    0750 root    root    -   -
+d /var/log/prismos                     0750 root    root    -   -
+d /var/lib/prismos                     0755 root    root    -   -
+d /var/lib/prismos/state               0755 root    root    -   -
+d /var/cache/prismos                   0755 root    root    -   -
+d /var/cache/prismos/mesa              0770 chronos chronos -   -
+d /var/lib/waydroid                    0755 root    root    -   -
+d /var/lib/waydroid/images             0755 root    root    -   -
+d /var/lib/waydroid/lxc                0755 root    root    -   -
+d /var/lib/waydroid/overlay            0755 root    root    -   -
+d /var/lib/waydroid/rootfs             0755 root    root    -   -
+d /var/lib/waydroid/data               0755 root    root    -   -
+d /var/lib/waydroid/cache              0755 root    root    -   -
+d /home/chronos/user/WineBottles       0700 chronos chronos -   -
+d /etc/prismos                         0755 root    root    -   -
+e /var/log/prismos/*.log               0640 root    root    14d -
+e /var/lib/waydroid/cache/*            -    -       -       14d -
